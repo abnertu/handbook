@@ -87,7 +87,12 @@ import { Steps } from '@astrojs/starlight/components';
 ## 清理
 
 - 取消 pending 的 job，刪除 `feature/test` 分支。
-- 用 `gitlab-runner unregister --name` 移除 `lab-general` 與 `lab-deploy`，並在 GitLab 中刪除這兩個 runner。
+- 移除 `lab-general` 與 `lab-deploy`，並在 GitLab 中刪除這兩個 runner:
+
+  ```sh
+  docker exec gitlab-runner gitlab-runner unregister --name "lab-general"
+  docker exec gitlab-runner gitlab-runner unregister --name "lab-deploy"
+  ```
 
 參考: [Runner scopes](https://docs.gitlab.com/ci/runners/runners_scope/)，[Configuring runners](https://docs.gitlab.com/ci/runners/configure_runners/)。
 

@@ -87,13 +87,15 @@ import { Steps } from '@astrojs/starlight/components';
 
 ## 清理
 
+後續練習會繼續使用這個 runner 與容器。完成全部練習後再執行下列清理。
+
 ```sh
 docker exec gitlab-runner gitlab-runner unregister --all-runners
 docker rm -f gitlab-runner
 sudo rm -rf /srv/gitlab-runner
 ```
 
-最後在 GitLab 中刪除 `lab-docker` runner。後續練習會繼續使用這個 runner，可以等全部完成後再清理。
+最後在 GitLab 中刪除練習建立的所有 runner。
 
 參考: [Run GitLab Runner in a container](https://docs.gitlab.com/runner/install/docker/)，[Registering runners](https://docs.gitlab.com/runner/register/)。
 
