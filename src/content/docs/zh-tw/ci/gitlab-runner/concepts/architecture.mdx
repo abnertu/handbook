@@ -51,8 +51,8 @@ GitLab 前端的 Workhorse 支援 long polling: 沒有 job 時，請求會保持
 | --- | --- | --- |
 | Prepare | 拉取映像檔，建立並啟動 `services` | runner manager 呼叫 Docker API |
 | Pre-job | clone 或 fetch 原始碼，還原快取，下載前一個 stage 的 artifacts | helper 容器 |
-| Job | 依序執行 `before_script`，`script` | build 容器，使用 job 指定的 `image` |
-| Post-job | 執行 `after_script`，建立並上傳快取，上傳 artifacts | helper 容器 |
+| Job | 依序執行 `before_script`，`script`，最後執行 `after_script` | build 容器，使用 job 指定的 `image` |
+| Post-job | 建立並上傳快取，上傳 artifacts | helper 容器 |
 
 每個階段的細節請參考 [Docker executor](https://docs.gitlab.com/runner/executors/docker/) 官方文件。
 

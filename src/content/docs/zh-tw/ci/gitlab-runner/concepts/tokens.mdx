@@ -45,7 +45,7 @@ curl --request POST \
 
 ## 註冊時不能設定的參數
 
-使用 runner authentication token 註冊時，下列參數由 GitLab 端的 runner 設定決定，在 `register` 指令中指定也不會生效:
+下列參數由 GitLab 端的 runner 設定決定。與 `--token` 一起使用時，`register` 會直接失敗並結束。只有把 `glrt-` token 放在舊的 `--registration-token` 參數時，這些參數才會被忽略並顯示警告。細節請參考 [Registering runners](https://docs.gitlab.com/runner/register/)。
 
 - `--tag-list`
 - `--run-untagged`
@@ -55,14 +55,14 @@ curl --request POST \
 - `--paused`
 - `--maintenance-note`
 
-自動化腳本從舊流程遷移時，要把這些參數移到建立 runner 的 API 呼叫中。
+自動化腳本從舊流程遷移時，要從 `register` 指令中移除這些參數，改在建立 runner 的 API 呼叫中設定。
 
 ## token 的保管
 
 - runner authentication token 寫在 `config.toml` 的 `token` 欄位，這個檔案要限制只有 root 或 runner 服務帳號可以讀取。
 - 不要把 token 寫進 `.gitlab-ci.yml`，容器映像檔或版本控制。自動化部署時從祕密管理系統注入，例如 Kubernetes Secret 或 Vault。
 - token 外洩時，在 GitLab 中重設 token 或刪除 runner。也可以用 Runners API 輪替 token，或在 runner 主機上執行 `gitlab-runner reset-token`。
-- 同一個 token 部署到多台主機時，GitLab 會把每台主機顯示為同一個 runner 的不同 manager。這適合水平擴展同一種 runner，但所有主機共用相同的 tags 與設定。
+- 同一個 token 部署到多台主機時，GitLab 會把每台主機顯示為同一個 runner 的不同 manager。這適合水平擴展同一種 runner，但所有主機共用相同的 tags 與設定。輪替 token 時只有第一個連線的 manager 會收到新 token，必須把新 token 複製到其他主機的 `config.toml`，否則那些主機會中斷連線。請參考 [Migrating to the new runner registration workflow](https://docs.gitlab.com/ci/runners/new_creation_workflow/)。
 
 ## 下一步
 

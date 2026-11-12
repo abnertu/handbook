@@ -121,7 +121,7 @@ docker run --rm -v /srv/gitlab-runner/config:/etc/gitlab-runner gitlab/gitlab-ru
 
 - `--url` 是 GitLab 的網址，自架 GitLab 請換成自己的網址。
 - `--token` 是上一步取得的 `glrt-` token。先用 `read -rs RUNNER_TOKEN` 輸入並存在環境變數中，避免 token 留在 shell 歷史記錄。
-- tags，protected 等屬性已經在 GitLab 端設定，這裡不需要也不能再指定。
+- tags，protected 等屬性已經在 GitLab 端設定。在這裡加上 `--tag-list` 等參數會讓註冊失敗。
 
 註冊會在 `config.toml` 新增一個 `[[runners]]` 區段。以 root 執行時檔案位於 `/etc/gitlab-runner/config.toml`，以一般使用者執行時位於 `~/.gitlab-runner/config.toml`。完整參數請參考 [Registering runners](https://docs.gitlab.com/runner/register/)。
 
