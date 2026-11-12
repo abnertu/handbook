@@ -1,0 +1,105 @@
+---
+title: 內容結構
+description: 本站的目錄，網址與側邊欄如何對應，以及如何新增手冊，章節與語言。
+sidebar:
+  label: 內容結構
+  order: 2
+---
+
+import { FileTree, Steps } from '@astrojs/starlight/components';
+
+本站參考 Astro 與 Starlight 官方文件的組織方式: 先依領域分組，每個領域下有多份手冊，每份手冊再依頁面類型分組。
+
+## 目錄與網址
+
+每個 Markdown 或 MDX 檔案對應一個網址。檔案路徑去掉副檔名，前面加上 `/handbook/` 就是網址。
+
+<FileTree>
+- src/content/docs/
+  - zh-tw/ 繁體中文，預設語言
+    - index.mdx 首頁
+    - contributing/ 貢獻指南
+      - writing-guide.mdx
+      - structure.mdx
+    - ci/ 領域: CI 持續整合
+      - gitlab-runner/ 手冊: GitLab Runner 與 Executor
+        - index.mdx 手冊概觀
+        - concepts/ 概念
+          - architecture.mdx
+        - guides/ 操作指南
+          - install-register.mdx
+        - executors/ 各種 executor
+          - docker.mdx
+        - reference/ 參考
+          - config-toml.mdx
+        - labs/ 實作練習
+          - 01-register-runner.mdx
+- src/content/i18n/
+  - zh-TW.json 介面文字覆寫
+</FileTree>
+
+例如 `src/content/docs/zh-tw/ci/gitlab-runner/labs/01-register-runner.mdx` 的網址是 `/handbook/zh-tw/ci/gitlab-runner/labs/01-register-runner/`。
+
+- 目錄與檔名使用小寫英文與連字號，例如 `install-register.mdx`。
+- 實作練習的檔名加上兩位數序號，例如 `01-register-runner.mdx`，讓順序固定。
+- 圖片放在 `src/assets/` 下與手冊相同的路徑，例如 `src/assets/ci/gitlab-runner/`。
+
+## 側邊欄
+
+側邊欄在 `astro.config.mjs` 的 `sidebar` 設定。每個領域是一個群組，每份手冊是領域下的子群組，手冊內再依頁面類型分組。
+
+```js title="astro.config.mjs (節錄)"
+sidebar: [
+	{
+		label: 'CI 持續整合',
+		items: [
+			{
+				label: 'GitLab Runner 與 Executor',
+				items: [
+					{ slug: 'ci/gitlab-runner' },
+					{ label: '概念', autogenerate: { directory: 'ci/gitlab-runner/concepts' } },
+					{ label: '實作練習', autogenerate: { directory: 'ci/gitlab-runner/labs' } },
+				],
+			},
+		],
+	},
+],
+```
+
+- 只使用 `slug` 與 `autogenerate`，不使用 `link`，建置時才會檢查項目是否存在。
+- `slug` 與 `directory` 不包含語言目錄 `zh-tw/`，Starlight 會自動加上。
+- 群組內的排序由每頁 frontmatter 的 `sidebar.order` 決定。
+
+## 新增一份手冊
+
+<Steps>
+
+1. 決定手冊所屬的領域。領域不存在時，在 `src/content/docs/zh-tw/` 下建立領域目錄，例如 `ci/`。
+
+2. 建立手冊目錄與概觀頁 `index.mdx`，例如 `src/content/docs/zh-tw/ci/github-actions/index.mdx`。概觀頁說明手冊範圍，目標讀者，對應的軟體版本與參考來源。
+
+3. 依頁面類型建立子目錄: `concepts/`，`guides/`，`reference/`，`labs/`。不需要的類型可以省略。
+
+4. 在 `astro.config.mjs` 的領域群組下新增手冊子群組，每個頁面類型使用一個 `autogenerate` 項目。
+
+5. 在首頁 `src/content/docs/zh-tw/index.mdx` 與 `README.md` 的手冊列表加上新手冊。
+
+6. 執行 `npm run lint:prose` 與 `npm run build`，確認標點，空格與連結都通過檢查。
+
+</Steps>
+
+## 新增一種語言
+
+本站目前只有繁體中文，但設定已經保留多語系結構。每種語言使用自己的目錄，新增語言不會改變既有網址。
+
+<Steps>
+
+1. 在 `astro.config.mjs` 的 `locales` 加上新語言，例如 `en: { label: 'English', lang: 'en' }`。
+
+2. 建立 `src/content/docs/en/`，以與 `zh-tw/` 相同的路徑放置翻譯頁面。尚未翻譯的頁面會顯示預設語言的內容與提示。
+
+3. 側邊欄的 `label` 加上 `translations` 欄位，提供各語言的群組名稱。
+
+4. 為新語言另訂撰寫規範。本站的標點與空格規則只適用於繁體中文，`npm run lint:prose` 只檢查 `zh-tw/` 與 `zh-TW.json`。
+
+</Steps>

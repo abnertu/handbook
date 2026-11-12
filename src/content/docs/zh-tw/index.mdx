@@ -1,6 +1,38 @@
 ---
 title: AbnerTu Handbook
-description: 系統化的技術手冊。
+description: 系統化的技術手冊，從原理，操作到實作練習，一次學到專家水準。
+template: splash
+hero:
+  tagline: 技術手冊。從原理，操作到實作練習，系統化地學會一項技術。
+  actions:
+    - text: 撰寫規範
+      link: /handbook/zh-tw/contributing/writing-guide/
+      icon: right-arrow
+      variant: minimal
 ---
 
-建置中。
+import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+## 手冊
+
+<CardGrid>
+	<LinkCard title="撰寫規範" description="本站共同遵守的語言，標點，空格與頁面結構規則。" href="/handbook/zh-tw/contributing/writing-guide/" />
+	<LinkCard title="內容結構" description="目錄，網址與側邊欄的對應方式，以及如何新增手冊。" href="/handbook/zh-tw/contributing/structure/" />
+</CardGrid>
+
+## 每份手冊的組成
+
+<CardGrid>
+	<Card title="概念" icon="information">
+		解釋原理與設計理由，回答 "這是什麼" 與 "為什麼"。
+	</Card>
+	<Card title="操作指南" icon="setting">
+		以任務為單位，列出先決條件，步驟與驗證方式。
+	</Card>
+	<Card title="參考" icon="document">
+		完整列出設定，指令與欄位，並連到官方文件。
+	</Card>
+	<Card title="實作練習" icon="rocket">
+		從零開始的練習流程，包含驗證，清理與延伸挑戰。
+	</Card>
+</CardGrid>

@@ -225,7 +225,7 @@ function collect(path) {
 	return ['.md', '.mdx', '.json', '.mjs', '.js', '.ts'].includes(extname(path)) ? [path] : [];
 }
 
-const DEFAULT_TARGETS = ['src/content/docs', 'src/content/i18n', 'astro.config.mjs'];
+const DEFAULT_TARGETS = ['src/content/docs/zh-tw', 'src/content/docs/404.md', 'src/content/i18n/zh-TW.json', 'astro.config.mjs'];
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
 	const targets = process.argv.length > 2 ? process.argv.slice(2) : DEFAULT_TARGETS;

@@ -24,7 +24,12 @@ export default defineConfig({
 			},
 			social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/abnertu/handbook' }],
 			plugins: [starlightLinksValidator()],
-			sidebar: [],
+			sidebar: [
+				{
+					label: '貢獻指南',
+					items: [{ autogenerate: { directory: 'contributing' } }],
+				},
+			],
 		}),
 	],
 });
