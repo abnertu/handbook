@@ -1,0 +1,53 @@
+---
+title: Shell executor
+description: Shell executor 如何直接在 runner 主機上執行 job，適用情境，目錄結構與安全限制。
+sidebar:
+  label: Shell
+  order: 2
+---
+
+Shell executor 直接在 runner 主機上執行 job 的腳本，沒有任何容器或 VM 隔離。它最簡單，也最危險。
+
+## 運作方式
+
+- 以 Linux 套件安裝時，job 以 `gitlab-runner` 使用者的身分執行。
+- job 使用主機上已經安裝的工具，`.gitlab-ci.yml` 中的 `image` 與 `services` 不會生效。
+- 原始碼 clone 到 `builds_dir`，預設為 `gitlab-runner` 家目錄下的 `builds/`。
+- 本機快取存放在 `/home/gitlab-runner/cache/` 下。
+- 在 Linux 上預設使用 `bash`，在 Windows 上使用 `pwsh`。
+
+```toml title="config.toml"
+[[runners]]
+  name = "shell-runner"
+  url = "https://gitlab.com/"
+  token = "glrt-REDACTED"
+  executor = "shell"
+  shell = "bash"
+```
+
+## 適用情境
+
+- job 需要使用主機的硬體，例如 USB 裝置，GPU 或嵌入式開發板。
+- job 需要主機上的特定軟體或授權，而且無法放進容器。
+- 在 Windows 或 macOS 主機上執行原生建置，而且只有可信任的專案會使用。
+- 學習 runner 的運作，因為它最容易觀察。
+
+## 限制
+
+- job 之間沒有隔離。前一個 job 留下的檔案，程序或環境設定可能影響下一個 job。
+- 所有 job 共用主機的工具版本，不同專案需要不同版本時難以管理。
+- job 可以讀取 `gitlab-runner` 使用者能讀的所有檔案，包括其他專案的原始碼與快取。
+- 無法自動擴展。
+
+## 安全建議
+
+- 只讓可信任的專案使用 shell runner，設定為 project runner 並 **Lock to current projects**。
+- 用 tags 讓 job 明確選擇 shell runner，不要啟用 Run untagged。
+- 不要讓 `gitlab-runner` 使用者擁有 sudo 權限，也不要加入 `docker` 群組，除非確實需要。
+- 啟用 `FF_ENABLE_JOB_CLEANUP`，讓 runner 在 job 結束後清理建置目錄。
+
+詳細說明請參考 [Shell executor](https://docs.gitlab.com/runner/executors/shell/) 與 [Security for self-managed runners](https://docs.gitlab.com/runner/security/)。
+
+## 練習
+
+[實作練習: shell executor](/handbook/zh-tw/ci/gitlab-runner/labs/02-shell-executor/) 帶你觀察 shell executor 的目錄結構與 job 之間的狀態殘留。

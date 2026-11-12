@@ -1,0 +1,103 @@
+---
+title: Docker Autoscaler 與 Instance executor
+description: 以 fleeting plugin 在 AWS，Google Cloud 與 Azure 上自動建立機器執行 job，以及容量，重複使用與閒置政策的設計。
+sidebar:
+  label: Docker Autoscaler 與 Instance
+  order: 4
+---
+
+Docker Autoscaler 與 Instance executor 是 GitLab 新一代的自動擴展方案，在 GitLab 17.1 正式推出，用來取代已棄用的 Docker Machine executor。
+
+## 架構
+
+兩者都建立在 fleeting 與 taskscaler 之上:
+
+- **fleeting**: 一組自動擴展機器的抽象層，透過 plugin 支援不同雲端。官方提供 AWS，Google Cloud 與 Azure 的 plugin。
+- **taskscaler**: 依 job 數量與政策決定要增加或減少多少機器，並把 job 分配到機器上。
+
+```text title="運作流程"
+runner manager (一台小型常駐主機)
+  └─ taskscaler: 依 pending job 與 idle 政策計算需要的容量
+       └─ fleeting plugin (aws/googlecloud/azure)
+            └─ 調整 AWS Auto Scaling group / GCP instance group / Azure scale set
+                 └─ 新機器 ── runner 以 SSH 連線並執行 job
+```
+
+雲端端的機器群組 (例如 AWS Auto Scaling group) 要事先建立，runner 只負責調整它的數量。每個 `[[runners]]` 要使用自己的機器群組，不要讓多個 runner manager 或多個 `[[runners]]` 共用同一個群組。
+
+## 兩者的差異
+
+| 項目 | Docker Autoscaler | Instance |
+| --- | --- | --- |
+| job 執行位置 | 機器上的 Docker 容器 | 直接在機器上執行 |
+| `image` 與 `services` | 支援，等同 Docker executor | 不支援 |
+| 機器映像需求 | 安裝 Docker | 安裝 `git` 與 `gitlab-runner` |
+| 適用情境 | 一般容器化 job | 需要完整作業系統，例如 macOS 建置或存取裝置 |
+
+Docker Autoscaler 包裝了 Docker executor，所有 `[runners.docker]` 設定都可以使用。
+
+## 設定範例
+
+先安裝 `config.toml` 中指定的 fleeting plugin:
+
+```sh
+gitlab-runner fleeting install
+```
+
+下列設定在 AWS 上為每個 job 建立一台新機器，最多 10 台，並保留 5 台閒置機器 20 分鐘:
+
+```toml title="config.toml"
+concurrent = 10
+
+[[runners]]
+  name = "docker-autoscaler"
+  url = "https://gitlab.com/"
+  token = "glrt-REDACTED"
+  shell = "sh"
+  executor = "docker-autoscaler"
+
+  [runners.docker]
+    image = "alpine:latest"
+
+  [runners.autoscaler]
+    plugin = "aws"
+    capacity_per_instance = 1
+    max_use_count = 1
+    max_instances = 10
+
+    [runners.autoscaler.plugin_config]
+      name = "runner-asg"
+
+    [runners.autoscaler.connector_config]
+      username = "ec2-user"
+      use_external_addr = true
+
+    [[runners.autoscaler.policy]]
+      idle_count = 5
+      idle_time = "20m0s"
+```
+
+`concurrent` 設為 `max_instances` 乘以 `capacity_per_instance`，讓所有機器的容量都能使用。
+
+## 容量設計
+
+| 設定 | 小的值 | 大的值 |
+| --- | --- | --- |
+| `capacity_per_instance` | 隔離好，每個 job 獨占機器 | 成本低，job 共用機器資源 |
+| `max_use_count` | `1` 代表每個 job 都用新機器，最安全 | 機器重複使用，啟動延遲少 |
+| `idle_count` | 成本低，job 要等機器啟動 | job 立即開始，閒置成本高 |
+| `idle_time` | 閒置機器很快被刪除 | 尖峰之間保留機器 |
+
+建議的起點:
+
+- 執行不可信任的程式碼或 privileged job: `capacity_per_instance = 1`，`max_use_count = 1`。
+- 內部專案的一般 job: `capacity_per_instance` 依機器大小設為 2 到 4，`max_use_count` 設為 10 到 50。
+- 依上班時間設定不同的 `idle_count`，非上班時間設為 `0`。
+
+## 常見問題
+
+- AWS 上關閉 Auto Scaling group 的 `AZRebalance`，否則 AWS 可能在 runner 不知情的情況下終止機器，造成 job 失敗。
+- Azure scale set 關閉 overprovisioning。
+- Instance executor 的 `capacity_per_instance` 大於 1 時，機器上 `sshd_config` 的 `MaxSessions` 至少要設為 `capacity_per_instance` 的 2 倍。
+
+詳細說明請參考 [Docker Autoscaler executor](https://docs.gitlab.com/runner/executors/docker_autoscaler/) 與 [Instance executor](https://docs.gitlab.com/runner/executors/instance/)。

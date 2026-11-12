@@ -1,0 +1,82 @@
+---
+title: Kubernetes executor
+description: Kubernetes executor 如何為每個 job 建立 Pod，資源與權限設定，以 Helm chart 安裝 runner，以及常見的設計取捨。
+sidebar:
+  label: Kubernetes
+  order: 5
+---
+
+Kubernetes executor 為每個 job 建立一個 Pod，job 結束後刪除。擴展能力由叢集提供: 叢集有空間，job 就能立即執行，搭配 cluster autoscaler 可以自動增加節點。
+
+## job Pod 的組成
+
+| 容器 | 用途 |
+| --- | --- |
+| `build` | 執行 job 的腳本，使用 job 的 `image` |
+| `helper` | clone 原始碼，處理快取與 artifacts |
+| `svc-0`，`svc-1` 或 service 別名 | job 的 `services`，同一個 Pod 中的容器透過 `localhost` 連線 |
+
+同一個 Pod 中的容器共用網路，所以 service 要用 `localhost` 加上連接埠連線，而不是 service 名稱。這是從 Docker executor 遷移時最常見的問題。
+
+runner 預設使用 `attach` 而不是 `exec` 執行腳本，因此 runner 的 service account 需要 `pods/attach` 權限。舊的 `exec` 方式可以用 `FF_USE_LEGACY_KUBERNETES_EXECUTION_STRATEGY` 啟用，但不建議。
+
+## 以 Helm 安裝
+
+runner manager 本身也在叢集中以 Deployment 執行，透過 Kubernetes API 建立 job Pod。
+
+```sh
+helm repo add gitlab https://charts.gitlab.io
+helm repo update
+kubectl create namespace gitlab-runner
+```
+
+```yaml title="values.yaml"
+gitlabUrl: https://gitlab.com/
+runnerToken: glrt-REDACTED
+rbac:
+  create: true
+concurrent: 10
+runners:
+  config: |
+    [[runners]]
+      [runners.kubernetes]
+        namespace = "{{.Release.Namespace}}"
+        image = "alpine:latest"
+        cpu_request = "500m"
+        memory_request = "512Mi"
+        cpu_limit = "2"
+        memory_limit = "2Gi"
+```
+
+```sh
+helm install --namespace gitlab-runner gitlab-runner -f values.yaml gitlab/gitlab-runner
+```
+
+正式環境不要把 token 寫在 `values.yaml` 中，改用 Kubernetes Secret 並在 values 中引用。安裝細節請參考 [GitLab Runner Helm chart](https://docs.gitlab.com/runner/install/kubernetes/)。
+
+## 資源設定
+
+- 為 build 容器設定 `cpu_request` 與 `memory_request`，讓排程器能正確放置 Pod，避免節點超賣。
+- helper 與 service 容器有各自的設定，例如 `helper_cpu_request` 與 `service_memory_limit`。
+- 允許 job 覆寫資源時，用 `cpu_limit_overwrite_max_allowed` 等設定限制上限。
+- 用 `node_selector` 與 tolerations 把 job Pod 放到專用的節點池，避免影響其他工作負載。
+
+## 權限與安全
+
+- runner 的 service account 只需要在 job namespace 中建立，讀取，attach 與刪除 Pod，以及管理 Secret 的權限。
+- job Pod 使用 `service_account` 指定的帳號。不要給它叢集層級的權限。
+- 避免 `privileged = true` 與 `hostPath` 掛載 Docker socket。這兩者會讓 job 取得節點的控制權。
+- 建置容器映像檔時優先使用 BuildKit rootless 或 Buildah，不要使用 Docker-in-Docker。
+
+## 快取
+
+Kubernetes executor 沒有持久的本機快取，每個 Pod 都是全新的環境。需要快取時設定 [分散式快取](/handbook/zh-tw/ci/gitlab-runner/guides/cache-artifacts/)，例如叢集內的 MinIO 或雲端物件儲存。
+
+## 常見問題
+
+- **Pod 一直 pending**: 叢集資源不足或 `node_selector` 沒有符合的節點。用 `kubectl describe pod` 查看事件。
+- **等待 Pod 逾時**: 拉取大型映像檔時超過 `poll_timeout` (預設 180 秒)。調大這個值或預先在節點上快取映像檔。
+- **service 連不上**: 改用 `localhost` 加上連接埠連線。
+- **權限錯誤**: 確認 runner 的 Role 包含 `pods/attach` 與 `pods/exec`。
+
+詳細說明請參考 [Kubernetes executor](https://docs.gitlab.com/runner/executors/kubernetes/)。

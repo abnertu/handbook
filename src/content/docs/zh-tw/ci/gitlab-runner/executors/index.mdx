@@ -1,0 +1,70 @@
+---
+title: 選擇 executor
+description: 比較 GitLab Runner 的所有 executor，依隔離，擴展與作業系統需求選出適合的 executor。
+sidebar:
+  label: 選擇 executor
+  order: 1
+---
+
+executor 決定 job 在什麼環境中執行。選錯 executor 的代價很高: 隔離不足會造成安全問題，擴展能力不足會讓 job 大量排隊。
+
+## executor 的狀態
+
+GitLab 目前持續開發的 executor 只有四個: Docker，Docker Autoscaler，Instance 與 Kubernetes。其他 executor 進入維護模式，只接受重大安全修正，不再新增功能。
+
+| executor | 狀態 | 執行環境 |
+| --- | --- | --- |
+| `docker` | 持續開發 | runner 主機上的容器 |
+| `docker-autoscaler` | 持續開發，17.1 正式推出 | 自動建立的雲端 VM 上的容器 |
+| `instance` | 持續開發，17.1 正式推出 | 自動建立的雲端 VM，直接在 VM 上執行 |
+| `kubernetes` | 持續開發 | Kubernetes Pod |
+| `shell` | 維護模式 | runner 主機本身 |
+| `ssh` | 維護模式 | 透過 SSH 連線的遠端主機 |
+| `virtualbox`，`parallels` | 維護模式 | 每個 job 複製一台 VM |
+| `custom` | 維護模式 | 自行撰寫的腳本 |
+| `docker+machine` | 已棄用，預計 20.0 移除 | Docker Machine 建立的 VM 上的容器 |
+
+狀態的官方說明請參考 [Executors](https://docs.gitlab.com/runner/executors/)。
+
+## 比較
+
+| 項目 | shell | docker | docker-autoscaler | instance | kubernetes |
+| --- | --- | --- | --- | --- | --- |
+| 每個 job 的乾淨環境 | 否 | 是 | 是 | 可設定 | 是 |
+| job 之間的隔離 | 無 | 容器 | 容器或 VM | VM | Pod |
+| 自動擴展 | 否 | 否 | 是 | 是 | 是 |
+| job 可以指定 `image` | 否 | 是 | 是 | 否 | 是 |
+| `services` | 否 | 是 | 是 | 否 | 是 |
+| 需要 Docker 或容器執行環境 | 否 | 是 | VM 上需要 | 否 | 叢集提供 |
+| 存取主機硬體或作業系統 | 完整 | 有限 | 有限 | 完整 | 有限 |
+| 設定難度 | 低 | 低 | 中 | 中 | 中到高 |
+
+## 選擇流程
+
+1. 需要自動擴展嗎?
+   - 已經有 Kubernetes 叢集: 使用 **Kubernetes executor**。
+   - 在 AWS，Google Cloud 或 Azure 上，job 需要容器: 使用 **Docker Autoscaler**。
+   - 在雲端上，job 需要完整的作業系統，例如 macOS 建置: 使用 **Instance executor**。
+2. 不需要自動擴展，job 在容器中執行: 使用 **Docker executor**，也可以搭配 Podman。
+3. job 必須直接使用主機，例如操作實體裝置或特定軟體授權: 使用 **shell executor**，並把 runner 限制在可信任的專案。
+
+:::tip[從 Docker Machine 遷移]
+Docker Machine executor 在 GitLab 17.5 棄用，預計在 GitLab 20.0 (2027 年 5 月) 移除。使用它自動擴展的環境應遷移到 Docker Autoscaler，請參考 [Docker Autoscaler 與 Instance executor](/handbook/zh-tw/ci/gitlab-runner/executors/docker-autoscaler/)。
+:::
+
+## 一台主機上組合多個 executor
+
+同一個 `config.toml` 可以有多個 `[[runners]]`，每個使用不同的 executor 與 tags。常見組合:
+
+- 一個 `docker` runner 執行一般 job，啟用 Run untagged。
+- 一個 `shell` runner 加上 `shell` tag，只執行需要主機資源的 job。
+
+這樣大部分 job 在容器中隔離執行，只有明確指定 tag 的 job 會直接在主機上執行。
+
+## 各 executor 詳細說明
+
+- [Shell executor](/handbook/zh-tw/ci/gitlab-runner/executors/shell/)
+- [Docker executor](/handbook/zh-tw/ci/gitlab-runner/executors/docker/)
+- [Docker Autoscaler 與 Instance executor](/handbook/zh-tw/ci/gitlab-runner/executors/docker-autoscaler/)
+- [Kubernetes executor](/handbook/zh-tw/ci/gitlab-runner/executors/kubernetes/)
+- [其他 executor](/handbook/zh-tw/ci/gitlab-runner/executors/others/)

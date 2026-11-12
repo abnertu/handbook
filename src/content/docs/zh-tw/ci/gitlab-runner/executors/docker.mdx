@@ -1,0 +1,109 @@
+---
+title: Docker executor
+description: Docker executor 的容器組成，job 執行階段，services 網路，volume 與快取，以及搭配 Podman 的設定。
+sidebar:
+  label: Docker
+  order: 3
+---
+
+Docker executor 為每個 job 建立新的容器，job 結束後刪除。它是最常用的 executor: 設定簡單，隔離良好，job 可以自行指定映像檔。
+
+## 一個 job 的容器
+
+| 容器 | 映像檔 | 用途 |
+| --- | --- | --- |
+| helper 容器 | GitLab Runner helper image | clone 原始碼，還原與上傳快取，下載與上傳 artifacts |
+| build 容器 | job 的 `image`，未指定時使用 `[runners.docker]` 的 `image` | 執行 `before_script`，`script` 與 `after_script` |
+| service 容器 | job 的 `services` | 提供資料庫，Docker daemon 等相依服務 |
+
+所有容器共用同一個建置目錄 volume，預設掛載在 `/builds/<namespace>/<project>`。
+
+## 執行階段
+
+1. **Prepare**: 拉取映像檔，建立並啟動 services。
+2. **Pre-job**: 在 helper 容器中 clone 原始碼，還原快取，下載 artifacts。
+3. **Job**: 在 build 容器中執行腳本。
+4. **Post-job**: 在 helper 容器中建立並上傳快取，上傳 artifacts。
+
+## services 與網路
+
+job 透過 service 的別名連線，例如 `postgres` service 可以用主機名稱 `postgres` 連線。
+
+```yaml title=".gitlab-ci.yml"
+test:
+  image: python:3.13
+  services:
+    - name: postgres:17
+      alias: db
+  variables:
+    POSTGRES_PASSWORD: example
+    DATABASE_URL: postgresql://postgres:example@db:5432/postgres
+  script:
+    - pip install psycopg
+    - python -c "import psycopg, os; psycopg.connect(os.environ['DATABASE_URL']); print('ok')"
+```
+
+建議啟用 `FF_NETWORK_PER_BUILD`。runner 會為每個 job 建立獨立的 bridge 網路，連接 build 容器與 service 容器，job 結束後刪除網路。service 之間也可以互相連線，build 容器在網路中的別名為 `build`。
+
+```toml title="config.toml"
+[[runners]]
+  executor = "docker"
+  [runners.feature_flags]
+    FF_NETWORK_PER_BUILD = true
+```
+
+啟用後不要再設定 `network_mode`。網路設定的細節與已知問題請參考 [Docker executor](https://docs.gitlab.com/runner/executors/docker/)。
+
+## volume 與快取
+
+- `volumes` 中列出的目錄在 job 之間持續存在。只寫容器路徑時，例如 `/cache`，runner 會建立 Docker volume。寫成 `<host-path>:<path>` 時掛載主機目錄。
+- 預設的本機快取位於容器中的 `/cache`。修改 `cache_dir` 時，新路徑也必須列在 `volumes` 中。
+- 不同 runner 設定的快取 volume 名稱不同，不會互相共用。需要共用時使用分散式快取或共用的主機目錄。
+
+## 搭配 Podman
+
+Docker executor 可以透過 Podman 的 Docker 相容 API 執行，不需要安裝 Docker daemon。需要 Podman 4.2.0 以上版本，使用 services 時必須啟用 `FF_NETWORK_PER_BUILD`。
+
+以 `gitlab-runner` 使用者啟用 rootless Podman socket:
+
+```sh
+sudo loginctl enable-linger gitlab-runner
+sudo -iu gitlab-runner systemctl --user --now enable podman.socket
+```
+
+在 `config.toml` 中把 `host` 指向這個 socket，路徑中的數字是 `gitlab-runner` 使用者的 UID，可以用 `id -u gitlab-runner` 查詢:
+
+```toml title="config.toml"
+[[runners]]
+  executor = "docker"
+  [runners.docker]
+    host = "unix:///run/user/998/podman/podman.sock"
+    image = "alpine:latest"
+    privileged = false
+  [runners.feature_flags]
+    FF_NETWORK_PER_BUILD = true
+```
+
+rootless Podman 讓 job 容器即使逃脫，也只能取得 `gitlab-runner` 使用者的權限。
+
+## 常用設定
+
+```toml title="config.toml"
+[runners.docker]
+  image = "alpine:latest"
+  privileged = false
+  pull_policy = ["always"]
+  allowed_images = ["alpine:*", "node:*", "python:*", "registry.example.com/*:*"]
+  volumes = ["/cache"]
+  cpus = "2"
+  memory = "4g"
+  shm_size = 268435456
+```
+
+## 建置容器映像檔
+
+在 Docker executor 中建置映像檔有三種常見方式: Docker-in-Docker，Docker socket 綁定，以及不需要 Docker daemon 的 Buildah 或 BuildKit。三者在安全性與快取上的取捨請參考 [實作練習: 建置容器映像檔](/handbook/zh-tw/ci/gitlab-runner/labs/06-build-images/)。
+
+:::note[Kaniko]
+kaniko 已經不再維護，GitLab 文件也移除了 kaniko 的建置說明。新的 pipeline 請改用 Buildah，BuildKit 或 Podman。
+:::

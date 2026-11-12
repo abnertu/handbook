@@ -1,0 +1,43 @@
+---
+title: 其他 executor
+description: SSH，VirtualBox，Parallels，Custom 與 Docker Machine executor 的用途，狀態與替代方案。
+sidebar:
+  label: 其他 executor
+  order: 6
+---
+
+本頁的 executor 都處於維護模式或已棄用。它們仍然可以使用，但不會再新增功能。新的環境應優先選擇 Docker，Docker Autoscaler，Instance 或 Kubernetes executor。
+
+## SSH executor
+
+runner 透過 SSH 連到一台遠端主機，在遠端主機上執行 job 的腳本。它和 shell executor 一樣沒有隔離，只是執行位置換成另一台主機。
+
+- 適用: 需要在無法安裝 runner 的主機上執行指令，例如特殊的嵌入式系統。
+- 限制: 不支援 `image` 與 `services`，遠端主機需要 `git`。
+- 替代: 在目標主機上安裝 runner 並使用 shell executor，或改用 Instance executor。
+
+## VirtualBox 與 Parallels executor
+
+runner 為每個 job 從基礎 VM 複製一台新 VM，透過 SSH 執行 job，結束後刪除。每個 job 都有乾淨的作業系統，但啟動較慢，而且需要在主機上安裝 VirtualBox 或 Parallels。
+
+- 適用: 在單一實體主機上需要完整 VM 隔離，例如 macOS 主機上的 Parallels。
+- 替代: 雲端環境改用 Instance executor。
+
+## Custom executor
+
+Custom executor 讓你用自己的腳本實作 executor 的每個階段: `config`，`prepare`，`run` 與 `cleanup`。runner 在每個階段呼叫對應的腳本，由腳本決定 job 在哪裡執行。
+
+- 適用: 官方 executor 都不支援的環境，例如特殊的虛擬化平台或叢集排程系統。
+- 代價: 隔離，清理與錯誤處理都要自己負責，維護成本高。
+
+介面規格請參考 [Custom executor](https://docs.gitlab.com/runner/executors/custom/)。
+
+## Docker Machine executor
+
+Docker Machine executor 以 Docker Machine 在雲端建立 VM，在 VM 上以 Docker 執行 job。它曾經是 GitLab.com 與許多自架環境自動擴展的標準作法。
+
+- 狀態: GitLab 17.5 棄用，預計 GitLab 20.0 (2027 年 5 月) 移除。Docker 官方也已經棄用 Docker Machine 工具。
+- GitLab 目前只修正會讓 job 無法執行或影響執行成本的重大問題。
+- 替代: 遷移到 [Docker Autoscaler](/handbook/zh-tw/ci/gitlab-runner/executors/docker-autoscaler/)。`[runners.machine]` 的 `IdleCount` 與 `IdleTime` 大致對應到 `[[runners.autoscaler.policy]]` 的 `idle_count` 與 `idle_time`，`MaxBuilds` 對應到 `max_use_count`。
+
+棄用說明請參考 [Docker Machine executor autoscale configuration](https://docs.gitlab.com/runner/configuration/autoscale/)。
