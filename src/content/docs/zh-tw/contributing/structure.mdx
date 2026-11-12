@@ -57,8 +57,8 @@ sidebar: [
 				label: 'GitLab Runner 與 Executor',
 				items: [
 					{ slug: 'ci/gitlab-runner' },
-					{ label: '概念', autogenerate: { directory: 'ci/gitlab-runner/concepts' } },
-					{ label: '實作練習', autogenerate: { directory: 'ci/gitlab-runner/labs' } },
+					{ label: '概念', items: [{ autogenerate: { directory: 'ci/gitlab-runner/concepts' } }] },
+					{ label: '實作練習', items: [{ autogenerate: { directory: 'ci/gitlab-runner/labs' } }] },
 				],
 			},
 		],
@@ -80,7 +80,7 @@ sidebar: [
 
 3. 依頁面類型建立子目錄: `concepts/`，`guides/`，`reference/`，`labs/`。不需要的類型可以省略。
 
-4. 在 `astro.config.mjs` 的領域群組下新增手冊子群組，每個頁面類型使用一個 `autogenerate` 項目。
+4. 在 `astro.config.mjs` 的領域群組下新增手冊子群組，每個頁面類型是一個子群組，群組的 `items` 中放一個 `autogenerate` 項目。
 
 5. 在首頁 `src/content/docs/zh-tw/index.mdx` 與 `README.md` 的手冊列表加上新手冊。
 

@@ -1,0 +1,133 @@
+---
+title: "練習 6: 建置容器映像檔"
+description: 比較 Docker-in-Docker，Docker socket 綁定與 Buildah 三種在 CI 中建置映像檔的方式，以及它們的安全取捨。
+sidebar:
+  label: "6. 建置容器映像檔"
+  order: 6
+---
+
+import { Steps } from '@astrojs/starlight/components';
+
+:::note[版本]
+依官方文件核對: GitLab Runner 19.5 (未實機執行)
+:::
+
+## 目標
+
+完成後你能:
+
+- 以 Docker-in-Docker 搭配 TLS 建置並推送映像檔。
+- 說明 Docker socket 綁定為什麼等同於主機 root 權限。
+- 不使用 privileged 模式，以 Buildah 建置映像檔。
+
+## 先決條件
+
+- 完成 [練習 1](/handbook/zh-tw/ci/gitlab-runner/labs/01-register-runner/)。
+- 練習專案中有一個 `Dockerfile`:
+
+  ```dockerfile title="Dockerfile"
+  FROM alpine:latest
+  RUN echo "built in CI" > /built.txt
+  CMD ["cat", "/built.txt"]
+  ```
+
+- 練習專案啟用了 Container Registry。
+
+:::danger
+步驟 1 會建立一個 privileged runner。只在可以拋棄的 VM 上做這個練習，完成後立即移除。
+:::
+
+## 步驟
+
+<Steps>
+
+1. 建立一個 project runner，tags 為 `lab,dind`，並註冊為 privileged Docker executor，掛載 TLS 憑證目錄:
+
+   ```sh
+   read -rs RUNNER_TOKEN
+   docker exec gitlab-runner gitlab-runner register \
+     --non-interactive \
+     --url "https://gitlab.com/" \
+     --token "$RUNNER_TOKEN" \
+     --executor "docker" \
+     --docker-image "docker:28-cli" \
+     --docker-privileged \
+     --docker-volumes "/certs/client" \
+     --description "lab-dind"
+   unset RUNNER_TOKEN
+   ```
+
+2. 用 Docker-in-Docker 建置並推送映像檔。`DOCKER_TLS_CERTDIR` 讓 dind service 產生 TLS 憑證，build 容器透過共用的 `/certs/client` 連線:
+
+   ```yaml title=".gitlab-ci.yml"
+   build-dind:
+     tags: [lab, dind]
+     image: docker:28-cli
+     services:
+       - docker:28-dind
+     variables:
+       DOCKER_TLS_CERTDIR: "/certs"
+     before_script:
+       - docker info
+       - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+     script:
+       - docker build -t "$CI_REGISTRY_IMAGE:dind-$CI_COMMIT_SHORT_SHA" .
+       - docker push "$CI_REGISTRY_IMAGE:dind-$CI_COMMIT_SHORT_SHA"
+   ```
+
+3. 觀察 socket 綁定的風險。在 `lab-docker` runner 上暫時把 `/var/run/docker.sock` 加入 `volumes`，然後執行下列 job。它從 job 中讀取主機的 `/etc/hostname`:
+
+   ```yaml title=".gitlab-ci.yml"
+   socket-escape:
+     tags: [lab, docker]
+     image: docker:28-cli
+     script:
+       - docker run --rm -v /:/host alpine:latest cat /host/etc/hostname
+   ```
+
+4. 移除步驟 3 加入的 socket 掛載。改用 Buildah 在一般的非 privileged runner 上建置:
+
+   ```yaml title=".gitlab-ci.yml"
+   build-buildah:
+     tags: [lab, docker]
+     image: quay.io/buildah/stable
+     variables:
+       STORAGE_DRIVER: vfs
+       BUILDAH_FORMAT: docker
+     script:
+       - buildah login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
+       - buildah build --isolation chroot -t "$CI_REGISTRY_IMAGE:buildah-$CI_COMMIT_SHORT_SHA" .
+       - buildah push "$CI_REGISTRY_IMAGE:buildah-$CI_COMMIT_SHORT_SHA"
+   ```
+
+</Steps>
+
+## 驗證
+
+- 專案的 **Deploy** > **Container registry** 中有 `dind-` 與 `buildah-` 開頭的兩個 tag。
+- 在任何主機上執行 `docker run --rm <registry>/<project>:buildah-<sha>`，輸出 `built in CI`。
+- `socket-escape` 的輸出是 runner 主機的主機名稱，不是容器的主機名稱。這證明掛載 socket 的 job 可以讀取主機的任何檔案。
+
+## 清理
+
+```sh
+docker exec gitlab-runner gitlab-runner unregister --name "lab-dind"
+```
+
+- 在 GitLab 中刪除 `lab-dind` runner，確認 `lab-docker` 的 `volumes` 已經沒有 `/var/run/docker.sock`。
+- 在 Container Registry 中刪除練習建立的 tag。
+
+## 三種方式的比較
+
+| 方式 | 需要 privileged | 主機風險 | 層快取 | 適用情境 |
+| --- | --- | --- | --- | --- |
+| Docker-in-Docker | 是 | 高 | 每個 job 獨立，需要 registry 快取 | 隔離的 VM，需要完整 Docker CLI |
+| socket 綁定 | 否 | 等同主機 root | 共用主機快取 | 單一可信任專案的專用主機 |
+| Buildah 或 BuildKit rootless | 否 | 低 | 需要 registry 快取 | 共用 runner 與 Kubernetes |
+
+官方說明請參考 [Use Docker to build Docker images](https://docs.gitlab.com/ci/docker/using_docker_build/) 與 [Docker-in-Docker](https://docs.gitlab.com/ci/docker/docker_in_docker/)。
+
+## 延伸挑戰
+
+- 為 Docker-in-Docker 加入 `--cache-from` 使用 registry 中的映像檔作為層快取，量測第二次建置的時間。
+- 用 BuildKit rootless 模式改寫 `build-buildah`，參考 [Build Docker images with BuildKit](https://docs.gitlab.com/ci/docker/using_buildkit/)。

@@ -1,0 +1,105 @@
+---
+title: "練習 2: shell executor 與狀態殘留"
+description: 以 Linux 套件安裝 runner 並使用 shell executor，觀察建置目錄，執行身分與 job 之間的狀態殘留。
+sidebar:
+  label: "2. shell executor"
+  order: 2
+---
+
+import { Steps } from '@astrojs/starlight/components';
+
+:::note[版本]
+依官方文件核對: GitLab Runner 19.5 (未實機執行)
+:::
+
+## 目標
+
+完成後你能:
+
+- 以 Linux 套件安裝 runner，並註冊 shell executor。
+- 說出 shell executor 的執行身分，建置目錄與快取目錄。
+- 示範為什麼 shell executor 不適合不可信任的專案。
+
+## 先決條件
+
+- 完成 [練習 1](/handbook/zh-tw/ci/gitlab-runner/labs/01-register-runner/) 的練習專案。
+- 一台可以拋棄的 Debian 或 Ubuntu VM。不要在個人電腦或正式主機上做這個練習。
+
+## 步驟
+
+<Steps>
+
+1. 在 VM 上安裝 runner:
+
+   ```sh
+   curl -L "https://packages.gitlab.com/install/repositories/runner/gitlab-runner/script.deb.sh" -o script.deb.sh
+   less script.deb.sh
+   sudo bash script.deb.sh
+   sudo apt install gitlab-runner
+   ```
+
+2. 在練習專案中建立新的 project runner，tags 填入 `lab,shell`，說明填入 `lab-shell`，複製 token。
+
+3. 註冊 shell executor:
+
+   ```sh
+   read -rs RUNNER_TOKEN
+   sudo gitlab-runner register \
+     --non-interactive \
+     --url "https://gitlab.com/" \
+     --token "$RUNNER_TOKEN" \
+     --executor "shell" \
+     --description "lab-shell"
+   unset RUNNER_TOKEN
+   ```
+
+4. 把 `.gitlab-ci.yml` 改成兩個依序執行的 job。第一個 job 在建置目錄外留下一個檔案，第二個 job 讀取它:
+
+   ```yaml title=".gitlab-ci.yml"
+   stages:
+     - first
+     - second
+
+   leave-state:
+     stage: first
+     tags: [lab, shell]
+     script:
+       - id
+       - pwd
+       - echo "left by job $CI_JOB_ID" > /tmp/lab-shell-state
+       - echo 'export LAB_INJECTED=1' >> ~/.bashrc
+
+   read-state:
+     stage: second
+     tags: [lab, shell]
+     script:
+       - cat /tmp/lab-shell-state
+       - grep LAB_INJECTED ~/.bashrc
+       - ls ~/builds
+   ```
+
+5. 推送並等待 pipeline 完成。
+
+</Steps>
+
+## 驗證
+
+- `id` 的輸出顯示 `uid=` 後面是 `gitlab-runner`，不是 root。
+- `pwd` 顯示建置目錄位於 `/home/gitlab-runner/builds/` 下。
+- `read-state` 成功讀到 `left by job` 與 `LAB_INJECTED`。這證明前一個 job 可以影響下一個 job，包括修改 shell 的啟動設定。
+- 在 VM 上執行 `sudo ls /home/gitlab-runner/builds`，可以看到所有專案的原始碼都留在主機上。
+
+## 清理
+
+```sh
+sudo sed -i '/LAB_INJECTED/d' /home/gitlab-runner/.bashrc
+sudo rm -f /tmp/lab-shell-state
+sudo gitlab-runner unregister --name "lab-shell"
+```
+
+在 GitLab 中刪除 `lab-shell` runner。不再需要時直接刪除整台 VM。
+
+## 延伸挑戰
+
+- 在 `config.toml` 的 `[[runners]]` 中加入 `FF_ENABLE_JOB_CLEANUP=1` 的 `environment` 設定，重新執行 pipeline，比較 `ls ~/builds` 的結果。哪些殘留仍然存在?
+- 寫一份簡短的評估: 在什麼條件下你會允許團隊使用 shell executor? 對照 [安全強化](/handbook/zh-tw/ci/gitlab-runner/guides/security/) 的建議。

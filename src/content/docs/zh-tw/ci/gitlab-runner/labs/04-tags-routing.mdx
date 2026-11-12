@@ -1,0 +1,95 @@
+---
+title: "練習 4: tags 與 job 分派"
+description: 設計多個 runner 的 tags 與 untagged 設定，驗證 job 會交給哪個 runner，並用 Protected runner 隔離部署 job。
+sidebar:
+  label: "4. tags 與 job 分派"
+  order: 4
+---
+
+import { Steps } from '@astrojs/starlight/components';
+
+:::note[版本]
+依官方文件核對: GitLab Runner 19.5 (未實機執行)
+:::
+
+## 目標
+
+完成後你能:
+
+- 預測一個 job 會交給哪個 runner，並用 job log 驗證。
+- 說明 Run untagged 對沒有 tags 的 job 的影響。
+- 用 Protected runner 確保部署 job 只能從受保護分支執行。
+
+## 先決條件
+
+- 完成 [練習 1](/handbook/zh-tw/ci/gitlab-runner/labs/01-register-runner/)，`lab-docker` runner 仍在執行，tags 為 `lab,docker`。
+
+## 步驟
+
+<Steps>
+
+1. 在練習專案中再建立兩個 project runner:
+
+   | 說明 | tags | 設定 |
+   | --- | --- | --- |
+   | `lab-general` | 無 | 勾選 Run untagged |
+   | `lab-deploy` | `deploy` | 勾選 Protected |
+
+2. 用練習 1 的方式註冊這兩個 runner 到同一個 runner 容器中。每次註冊都會在同一個 `config.toml` 中新增一個 `[[runners]]`。
+
+3. 推送下列 pipeline:
+
+   ```yaml title=".gitlab-ci.yml"
+   untagged:
+     script:
+       - echo "untagged on $CI_RUNNER_DESCRIPTION"
+
+   needs-docker:
+     tags: [docker]
+     script:
+       - echo "docker on $CI_RUNNER_DESCRIPTION"
+
+   needs-two-tags:
+     tags: [lab, docker]
+     script:
+       - echo "lab+docker on $CI_RUNNER_DESCRIPTION"
+
+   impossible:
+     tags: [lab, gpu]
+     script:
+       - echo "never runs"
+
+   deploy:
+     tags: [deploy]
+     script:
+       - echo "deploy on $CI_RUNNER_DESCRIPTION from $CI_COMMIT_REF_NAME"
+   ```
+
+4. 在推送前，先寫下你預測每個 job 會交給哪個 runner，或不會執行。
+
+5. 從預設分支建立一個未受保護的分支 `feature/test`，推送同一份 pipeline，觀察 `deploy` job。
+
+</Steps>
+
+## 驗證
+
+| job | 預期結果 |
+| --- | --- |
+| `untagged` | 由 `lab-general` 執行 |
+| `needs-docker` | 由 `lab-docker` 執行 |
+| `needs-two-tags` | 由 `lab-docker` 執行 |
+| `impossible` | 一直 pending，GitLab 顯示沒有符合 tags 的 runner |
+| `deploy` 在預設分支 | 由 `lab-deploy` 執行，預設分支預設為受保護分支 |
+| `deploy` 在 `feature/test` | 一直 pending，因為 `lab-deploy` 只執行受保護分支的 job |
+
+比較你在步驟 4 的預測與實際結果，找出預測錯誤的原因。
+
+## 清理
+
+- 取消 pending 的 job，刪除 `feature/test` 分支。
+- 用 `gitlab-runner unregister --name` 移除 `lab-general` 與 `lab-deploy`，並在 GitLab 中刪除這兩個 runner。
+
+## 延伸挑戰
+
+- 把 `lab-docker` 也勾選 Run untagged，重新執行 pipeline。`untagged` job 會交給哪個 runner? 結果是否固定?
+- 設計一個團隊的 tags 命名規則，用能力而不是主機名稱命名，參考 [runner 類型，tags 與存取控制](/handbook/zh-tw/ci/gitlab-runner/concepts/runner-scopes/)。

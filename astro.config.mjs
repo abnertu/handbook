@@ -26,6 +26,22 @@ export default defineConfig({
 			plugins: [starlightLinksValidator()],
 			sidebar: [
 				{
+					label: 'CI 持續整合',
+					items: [
+						{
+							label: 'GitLab Runner 與 Executor',
+							items: [
+								{ slug: 'ci/gitlab-runner' },
+								{ label: '概念', items: [{ autogenerate: { directory: 'ci/gitlab-runner/concepts' } }] },
+								{ label: '操作指南', items: [{ autogenerate: { directory: 'ci/gitlab-runner/guides' } }] },
+								{ label: 'Executor', items: [{ autogenerate: { directory: 'ci/gitlab-runner/executors' } }] },
+								{ label: '參考', items: [{ autogenerate: { directory: 'ci/gitlab-runner/reference' } }] },
+								{ label: '實作練習', items: [{ autogenerate: { directory: 'ci/gitlab-runner/labs' } }] },
+							],
+						},
+					],
+				},
+				{
 					label: '貢獻指南',
 					items: [{ autogenerate: { directory: 'contributing' } }],
 				},

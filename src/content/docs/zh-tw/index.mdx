@@ -5,15 +5,23 @@ template: splash
 hero:
   tagline: 技術手冊。從原理，操作到實作練習，系統化地學會一項技術。
   actions:
+    - text: 開始閱讀 GitLab Runner
+      link: /handbook/zh-tw/ci/gitlab-runner/
+      icon: right-arrow
     - text: 撰寫規範
       link: /handbook/zh-tw/contributing/writing-guide/
-      icon: right-arrow
       variant: minimal
 ---
 
 import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
 
 ## 手冊
+
+<CardGrid>
+	<LinkCard title="CI 持續整合: GitLab Runner 與 Executor" description="從架構，註冊，executor 選擇到安全與擴展，附 7 個實作練習。" href="/handbook/zh-tw/ci/gitlab-runner/" />
+</CardGrid>
+
+## 貢獻指南
 
 <CardGrid>
 	<LinkCard title="撰寫規範" description="本站共同遵守的語言，標點，空格與頁面結構規則。" href="/handbook/zh-tw/contributing/writing-guide/" />

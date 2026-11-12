@@ -1,0 +1,102 @@
+---
+title: "練習 1: 註冊容器 runner"
+description: 在 Docker 中執行 GitLab Runner，以 runner authentication token 註冊，並執行第一個 job。
+sidebar:
+  label: "1. 註冊容器 runner"
+  order: 1
+---
+
+import { Steps } from '@astrojs/starlight/components';
+
+:::note[版本]
+依官方文件核對: GitLab Runner 19.5 (未實機執行)
+:::
+
+## 目標
+
+完成後你能:
+
+- 在容器中執行 GitLab Runner，並讓設定在容器重建後保留。
+- 在 GitLab 建立 project runner，並以 runner authentication token 註冊。
+- 從 job log 確認 job 由你的 runner 執行。
+
+## 先決條件
+
+- 一個 GitLab.com 帳號，以及一個你有 Maintainer 角色的空專案，以下稱為練習專案。
+- 一台安裝 Docker Engine 的 Linux 主機或 VM，可以連到 `https://gitlab.com`。
+- 基本的 `git` 操作。
+
+## 步驟
+
+<Steps>
+
+1. 在練習專案中停用 GitLab.com 的 instance runners，確保 job 只會交給你的 runner。開啟 **Settings** > **CI/CD** > **Runners**，關閉 **Turn on instance runners for this project**。
+
+2. 在同一個頁面選擇 **Create project runner**。tags 填入 `lab,docker`，不要勾選 Run untagged，說明填入 `lab-docker`，然後選擇 **Create runner**。複製 `glrt-` 開頭的 token。
+
+3. 在主機上啟動 runner 容器:
+
+   ```sh
+   sudo mkdir -p /srv/gitlab-runner/config
+   docker run -d --name gitlab-runner --restart always \
+     -v /srv/gitlab-runner/config:/etc/gitlab-runner \
+     -v /var/run/docker.sock:/var/run/docker.sock \
+     gitlab/gitlab-runner:latest
+   ```
+
+4. 輸入 token 並註冊。`read -rs` 讓 token 不會顯示在螢幕上，也不會留在 shell 歷史記錄:
+
+   ```sh
+   read -rs RUNNER_TOKEN
+   docker exec gitlab-runner gitlab-runner register \
+     --non-interactive \
+     --url "https://gitlab.com/" \
+     --token "$RUNNER_TOKEN" \
+     --executor "docker" \
+     --docker-image alpine:latest \
+     --description "lab-docker"
+   unset RUNNER_TOKEN
+   ```
+
+5. 檢查產生的設定檔，找出 `concurrent`，`[[runners]]` 與 `[runners.docker]` 區段:
+
+   ```sh
+   sudo cat /srv/gitlab-runner/config/config.toml
+   ```
+
+6. 在練習專案中新增 `.gitlab-ci.yml` 並推送:
+
+   ```yaml title=".gitlab-ci.yml"
+   hello:
+     tags:
+       - lab
+     script:
+       - echo "runner=$CI_RUNNER_DESCRIPTION executor=docker"
+       - cat /etc/os-release
+       - hostname
+   ```
+
+</Steps>
+
+## 驗證
+
+- GitLab 的 **Settings** > **CI/CD** > **Runners** 中，`lab-docker` 顯示為 `online`。
+- `docker exec gitlab-runner gitlab-runner verify` 顯示 runner 的狀態為 alive。
+- `hello` job 成功，job log 開頭顯示 `Running with gitlab-runner 19.5` 與 `on lab-docker`，輸出中的 `/etc/os-release` 是 Alpine Linux。
+- `hostname` 每次執行都不同，因為每個 job 都使用新的容器。
+
+## 清理
+
+```sh
+docker exec gitlab-runner gitlab-runner unregister --all-runners
+docker rm -f gitlab-runner
+sudo rm -rf /srv/gitlab-runner
+```
+
+最後在 GitLab 中刪除 `lab-docker` runner。後續練習會繼續使用這個 runner，可以等全部完成後再清理。
+
+## 延伸挑戰
+
+- 把 `gitlab/gitlab-runner:latest` 換成固定版本的 tag，並寫一個升級 runner 的步驟，確保升級後設定仍然存在。
+- 修改 job 的 `tags` 為 `other`，觀察 job 的狀態與 GitLab 顯示的訊息。
+- 用 Runners API 建立 runner，取代步驟 2 的 UI 操作。

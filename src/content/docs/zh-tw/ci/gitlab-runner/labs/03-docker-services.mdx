@@ -1,0 +1,90 @@
+---
+title: "練習 3: Docker executor 與 services"
+description: 用 Docker executor 執行需要資料庫的測試，觀察 helper，build 與 service 容器，並啟用每個 job 獨立的網路。
+sidebar:
+  label: "3. Docker 與 services"
+  order: 3
+---
+
+import { Steps } from '@astrojs/starlight/components';
+
+:::note[版本]
+依官方文件核對: GitLab Runner 19.5 (未實機執行)
+:::
+
+## 目標
+
+完成後你能:
+
+- 讓 job 使用 PostgreSQL service，並以別名連線。
+- 在 runner 主機上找出一個 job 建立的所有容器。
+- 啟用 `FF_NETWORK_PER_BUILD`，並說明它解決的問題。
+
+## 先決條件
+
+- 完成 [練習 1](/handbook/zh-tw/ci/gitlab-runner/labs/01-register-runner/)，`lab-docker` runner 仍在執行。
+
+## 步驟
+
+<Steps>
+
+1. 把練習專案的 `.gitlab-ci.yml` 改成下列內容並推送:
+
+   ```yaml title=".gitlab-ci.yml"
+   db-test:
+     tags: [lab, docker]
+     image: postgres:17
+     services:
+       - name: postgres:17
+         alias: db
+     variables:
+       POSTGRES_PASSWORD: example
+       PGPASSWORD: example
+     script:
+       - until pg_isready -h db -U postgres; do sleep 1; done
+       - psql -h db -U postgres -c "SELECT version();"
+       - sleep 60
+   ```
+
+2. job 執行時，在 runner 主機上列出容器。`sleep 60` 讓你有時間觀察:
+
+   ```sh
+   docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
+   ```
+
+3. 在 `/srv/gitlab-runner/config/config.toml` 的 `lab-docker` 區段加入功能旗標，runner 會自動重新載入設定:
+
+   ```toml title="config.toml"
+   [[runners]]
+     name = "lab-docker"
+     [runners.feature_flags]
+       FF_NETWORK_PER_BUILD = true
+   ```
+
+4. 重新執行 pipeline，在 job 執行時列出網路:
+
+   ```sh
+   docker network ls
+   ```
+
+</Steps>
+
+## 驗證
+
+- job 成功，輸出包含 `PostgreSQL 17`。
+- 步驟 2 的列表中有名稱以 `runner-` 開頭的容器，至少包含 build 容器與 `postgres` service 容器。
+- 步驟 4 的列表中有一個 job 專屬的網路，job 結束後再執行一次 `docker network ls`，這個網路已經被刪除。
+
+## 清理
+
+job 結束後 runner 會自動刪除容器與網路。刪除練習拉下來的映像檔:
+
+```sh
+docker image rm postgres:17
+```
+
+## 延伸挑戰
+
+- 把 service 的 `alias` 移除，找出 job 要用什麼主機名稱才能連到資料庫。
+- 加入第二個 service，例如 `redis:7`，讓 job 同時連線兩個 service。
+- 讀 [Docker executor](/handbook/zh-tw/ci/gitlab-runner/executors/docker/) 的網路章節，說明不啟用 `FF_NETWORK_PER_BUILD` 時 service 之間能否互相連線。

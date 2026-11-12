@@ -1,0 +1,120 @@
+---
+title: "練習 7: Kubernetes executor"
+description: 在本機 kind 叢集中以 Helm 安裝 runner，觀察每個 job 建立的 Pod，並設定資源與 service 連線。
+sidebar:
+  label: "7. Kubernetes executor"
+  order: 7
+---
+
+import { Steps } from '@astrojs/starlight/components';
+
+:::note[版本]
+依官方文件核對: GitLab Runner 19.5 (未實機執行)
+:::
+
+## 目標
+
+完成後你能:
+
+- 以 Helm chart 在 Kubernetes 中安裝 runner，token 存放在 Secret 中。
+- 觀察 job Pod 中的 build，helper 與 service 容器。
+- 說明 Kubernetes executor 與 Docker executor 在 service 連線上的差異。
+
+## 先決條件
+
+- 完成 [練習 1](/handbook/zh-tw/ci/gitlab-runner/labs/01-register-runner/) 的練習專案。
+- 一台安裝 Docker，`kind`，`kubectl` 與 `helm` 的主機。
+
+## 步驟
+
+<Steps>
+
+1. 建立 kind 叢集與 namespace:
+
+   ```sh
+   kind create cluster --name runner-lab
+   kubectl create namespace gitlab-runner
+   ```
+
+2. 在練習專案中建立 project runner，tags 為 `lab,k8s`，說明填入 `lab-k8s`。把 token 存成 Secret，Helm chart 會從 `runner-token` 欄位讀取它:
+
+   ```sh
+   read -rs RUNNER_TOKEN
+   kubectl create secret generic lab-runner-token -n gitlab-runner \
+     --from-literal=runner-token="$RUNNER_TOKEN" \
+     --from-literal=runner-registration-token=""
+   unset RUNNER_TOKEN
+   ```
+
+3. 建立 values 檔案:
+
+   ```yaml title="values.yaml"
+   gitlabUrl: https://gitlab.com/
+   rbac:
+     create: true
+   concurrent: 4
+   runners:
+     secret: lab-runner-token
+     config: |
+       [[runners]]
+         [runners.kubernetes]
+           namespace = "{{.Release.Namespace}}"
+           image = "alpine:latest"
+           cpu_request = "100m"
+           memory_request = "128Mi"
+           memory_limit = "512Mi"
+   ```
+
+4. 安裝 runner:
+
+   ```sh
+   helm repo add gitlab https://charts.gitlab.io
+   helm repo update
+   helm install --namespace gitlab-runner gitlab-runner -f values.yaml gitlab/gitlab-runner
+   ```
+
+5. 推送下列 pipeline。注意 service 以 `localhost` 連線:
+
+   ```yaml title=".gitlab-ci.yml"
+   k8s-redis:
+     tags: [lab, k8s]
+     image: redis:7
+     services:
+       - redis:7
+     script:
+       - until redis-cli -h localhost ping; do sleep 1; done
+       - redis-cli -h localhost set lab ok
+       - redis-cli -h localhost get lab
+       - sleep 60
+   ```
+
+6. job 執行時列出 Pod，找出名稱以 `runner-` 開頭的 job Pod，再列出它的容器。把 `<job-pod>` 換成實際的 Pod 名稱:
+
+   ```sh
+   kubectl get pods -n gitlab-runner
+   kubectl get pod <job-pod> -n gitlab-runner -o jsonpath='{.spec.containers[*].name}'
+   ```
+
+</Steps>
+
+## 驗證
+
+- `kubectl get pods` 顯示一個 `gitlab-runner` Deployment 的 Pod，以及 job 執行時出現的 `runner-` 開頭的 job Pod。
+- job Pod 的容器名稱包含 `build`，`helper` 與 service 容器。
+- job 輸出 `PONG` 與 `ok`。job 結束後 job Pod 被刪除。
+- GitLab 中 `lab-k8s` runner 顯示為 `online`。
+
+## 清理
+
+```sh
+helm uninstall gitlab-runner -n gitlab-runner
+kind delete cluster --name runner-lab
+```
+
+在 GitLab 中刪除 `lab-k8s` runner。先在 GitLab 中暫停 runner，等待 job 結束後再執行 `helm uninstall`，可以避免 job 因為 runner 被移除而失敗。
+
+## 延伸挑戰
+
+- 把 `memory_limit` 改為 `16Mi`，觀察 job 失敗時 `kubectl describe pod` 顯示的原因。
+- 在 kind 中部署 MinIO，設定分散式快取，讓連續兩次執行的 job 可以共用快取。
+- 為 runner 加上 `node_selector`，並在 kind 中建立第二個節點，讓 job Pod 只排程到該節點。

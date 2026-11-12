@@ -1,0 +1,89 @@
+---
+title: "練習 5: 快取與併發"
+description: 量測快取對 job 時間的影響，並調整 concurrent 與 limit，觀察 job 排隊與平行執行的行為。
+sidebar:
+  label: "5. 快取與併發"
+  order: 5
+---
+
+import { Steps } from '@astrojs/starlight/components';
+
+:::note[版本]
+依官方文件核對: GitLab Runner 19.5 (未實機執行)
+:::
+
+## 目標
+
+完成後你能:
+
+- 用 `cache:key:files` 讓相依套件快取隨 lockfile 更新。
+- 在 runner 主機上找到快取 volume。
+- 調整 `concurrent` 與 `limit`，預測同時執行的 job 數。
+
+## 先決條件
+
+- 完成 [練習 1](/handbook/zh-tw/ci/gitlab-runner/labs/01-register-runner/)，`lab-docker` runner 仍在執行。
+- 練習專案中有一個 Node.js 專案，至少包含 `package.json` 與 `package-lock.json`。可以用 `npm init -y` 與 `npm install express` 建立。
+
+## 步驟
+
+<Steps>
+
+1. 推送下列 pipeline 兩次，第二次只修改 `README.md`:
+
+   ```yaml title=".gitlab-ci.yml"
+   install:
+     tags: [lab, docker]
+     image: node:24
+     cache:
+       key:
+         files:
+           - package-lock.json
+       paths:
+         - .npm/
+     script:
+       - time npm ci --cache .npm --prefer-offline
+   ```
+
+2. 比較兩次 job log 中 `npm ci` 的時間，以及 `Restoring cache` 與 `Saving cache` 的訊息。
+
+3. 在 runner 主機上找出快取 volume:
+
+   ```sh
+   docker volume ls --filter name=runner- --format '{{.Name}}'
+   ```
+
+4. 把 `config.toml` 的 `concurrent` 設為 `2`，`lab-docker` 的 `limit` 設為 `1`。
+
+5. 推送一個有 4 個平行 job 的 pipeline:
+
+   ```yaml title=".gitlab-ci.yml"
+   parallel-sleep:
+     tags: [lab, docker]
+     parallel: 4
+     script:
+       - date +%T
+       - sleep 30
+       - date +%T
+   ```
+
+6. 把 `limit` 改為 `2`，重新執行 pipeline。
+
+</Steps>
+
+## 驗證
+
+- 第二次執行的 job log 顯示成功還原快取，`npm ci` 的時間明顯縮短。
+- 步驟 3 列出至少一個名稱包含 `cache` 的 volume。
+- `limit = 1` 時，4 個 job 依序執行，總時間約 2 分鐘，每個 job 開始的時間相差約 30 秒。
+- `limit = 2` 時，job 兩兩一組執行，總時間約 1 分鐘。即使 `limit` 更大，`concurrent = 2` 也會把同時執行的 job 限制在 2 個。
+
+## 清理
+
+- 把 `concurrent` 與 `limit` 改回原本的值。
+- 刪除快取 volume，或在 GitLab 的 **Build** > **Pipelines** 頁面選擇 **Clear runner caches**。
+
+## 延伸挑戰
+
+- 修改 `package-lock.json`，確認 job 使用新的快取 key，並用 `fallback_keys` 讓第一次執行仍然能用舊快取。
+- 設定 MinIO 作為 S3 相容的分散式快取，用兩個 runner 交替執行 job，確認快取可以共用。參考 [快取與 artifacts](/handbook/zh-tw/ci/gitlab-runner/guides/cache-artifacts/)。
