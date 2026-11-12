@@ -1,0 +1,73 @@
+---
+title: runner 類型，tags 與存取控制
+description: instance，group 與 project runner 的差異，以及 tags，untagged，protected 與 lock 如何決定 job 交給哪個 runner。
+sidebar:
+  label: 類型，tags 與存取控制
+  order: 2
+---
+
+GitLab 用三個條件決定一個 job 可以交給哪個 runner: runner 的範圍 (scope)，tags，以及存取控制設定。設計 runner 架構時，這三者決定了隔離程度與資源分配。
+
+## runner 的三種範圍
+
+| 類型 | 可用範圍 | 誰可以建立 | 建立位置 |
+| --- | --- | --- | --- |
+| instance runner | 整個 GitLab instance 的所有群組與專案 | 管理員 | **Admin** > **CI/CD** > **Runners** |
+| group runner | 群組及其子群組中的所有專案 | 群組 Owner | 群組的 **Build** > **Runners** |
+| project runner | 指定的專案 | 專案 Maintainer | 專案的 **Settings** > **CI/CD** > **Runners** |
+
+- instance runner 適合提供全公司共用的一般用途執行環境。GitLab.com 上的 hosted runners 也屬於這一類。
+- group runner 適合一個團隊共用，可以存取團隊專屬的網路或憑證。
+- project runner 適合需要特殊硬體，特殊網路或高度隔離的專案。
+
+group runner 與 project runner 以先進先出 (FIFO) 的順序處理 job。instance runner 會在專案之間公平分配，避免單一專案占滿所有 runner。詳細規則請參考 [Runner scopes](https://docs.gitlab.com/ci/runners/runners_scope/)。
+
+## tags
+
+tags 是 runner 與 job 之間的配對標籤。job 在 `.gitlab-ci.yml` 中用 `tags` 指定需求，runner 在建立時設定自己擁有的 tags。
+
+```yaml title=".gitlab-ci.yml"
+build-arm:
+  tags:
+    - linux
+    - arm64
+  script:
+    - uname -m
+```
+
+配對規則如下:
+
+- job 的每一個 tag 都必須出現在 runner 的 tags 中，runner 才能執行該 job。runner 可以有比 job 更多的 tags。
+- 沒有 tags 的 job 只會交給啟用 **Run untagged jobs** 的 runner。
+- runner 沒有任何 tag 時，必須啟用 **Run untagged jobs**，否則不會收到任何 job。
+
+:::tip[tags 的命名]
+用 tags 描述能力，不要描述機器名稱。例如使用 `docker`，`arm64`，`gpu`，`internal-network`，不要使用 `server-01`。這樣替換主機時不需要修改 pipeline。
+:::
+
+job 一直停在 pending 並顯示沒有符合 tags 的 runner 時，先比對 job 的 `tags` 與 runner 的 tags，再確認 runner 是否為 `online` 且未暫停。
+
+## 存取控制
+
+| 設定 | 作用 | 適用時機 |
+| --- | --- | --- |
+| **Protected** | 只執行受保護分支或受保護 tag 上的 job | 部署 runner，持有正式環境憑證的 runner |
+| **Lock to current projects** | project runner 不能被其他專案啟用 | 專案專屬的 runner |
+| **Paused** | 暫停接收新 job，正在執行的 job 不受影響 | 維護或升級 runner 前 |
+| **Maximum job timeout** | 限制在此 runner 上執行的 job 時間上限 | 避免單一 job 長時間占用資源 |
+
+**Protected** 是隔離正式環境憑證的重要工具。部署用的 runner 設為 protected 後，任何人推送到未受保護的分支，都無法讓 job 在這台 runner 上執行，因此無法讀取 runner 主機上的憑證。設定方式請參考 [Prevent runners from revealing sensitive information](https://docs.gitlab.com/ci/runners/configure_runners/#prevent-runners-from-revealing-sensitive-information)。
+
+在 runner authentication token 流程中，tags，run untagged，protected，locked 與 maximum timeout 都在 GitLab UI 或 API 建立 runner 時設定，不在 `gitlab-runner register` 指令中設定。細節請參考 [建立與註冊流程](/handbook/zh-tw/ci/gitlab-runner/concepts/tokens/)。
+
+## 設計範例
+
+一個中型團隊的常見配置:
+
+| runner | 範圍 | tags | 設定 | 用途 |
+| --- | --- | --- | --- | --- |
+| 共用 Docker runner | instance | `docker`，`linux` | Run untagged | 一般建置與測試 |
+| ARM 建置 runner | group | `docker`，`arm64` | | 多架構映像檔 |
+| 部署 runner | project | `deploy`，`production` | Protected，Locked | 部署到正式環境 |
+
+這個配置讓沒有指定 tags 的 job 自動使用共用 runner，需要特殊能力的 job 用 tags 指定，部署 job 只能從受保護分支執行。

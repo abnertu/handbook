@@ -1,0 +1,102 @@
+---
+title: 監控與疑難排解
+description: 啟用 Prometheus 指標，讀取 runner 記錄，以及 job pending，權限錯誤與憑證錯誤等常見問題的排查步驟。
+sidebar:
+  label: 監控與疑難排解
+  order: 5
+---
+
+## 啟用指標
+
+runner 內建 Prometheus 指標端點。在 `config.toml` 的全域區段設定 `listen_address`，只寫連接埠時預設為 `9252`:
+
+```toml title="config.toml"
+concurrent = 4
+listen_address = "127.0.0.1:9252"
+```
+
+修改 `listen_address` 後需要重新啟動 runner。指標位於 `/metrics` 路徑:
+
+```sh
+curl -s http://127.0.0.1:9252/metrics | grep '^gitlab_runner_'
+```
+
+:::danger[不要公開指標端點]
+指標端點沒有身分驗證。綁定在內部位址，或只允許 Prometheus 所在的主機連線。
+:::
+
+常用指標:
+
+| 指標 | 用途 |
+| --- | --- |
+| `gitlab_runner_concurrent` | 目前的 `concurrent` 設定值 |
+| `gitlab_runner_limit` | 各 runner 設定的 `limit` 值 |
+| `gitlab_runner_jobs` | 目前正在執行的 job 數，可依 runner 與狀態分組 |
+| `gitlab_runner_request_concurrency_exceeded_total` | 取 job 請求超過 `request_concurrency` 的次數 |
+| `gitlab_runner_errors_total` | runner 記錄中的錯誤數 |
+| `gitlab_runner_version_info` | runner 版本，可用來追蹤升級進度 |
+
+正在執行的 job 數接近 `concurrent` 而且 GitLab 中有大量 pending job 時，代表需要擴展。指標的完整列表請參考 [Monitoring GitLab Runner](https://docs.gitlab.com/runner/monitoring/)。
+
+## 讀取記錄
+
+| 安裝方式 | 指令 |
+| --- | --- |
+| Linux 套件 (systemd) | `journalctl --unit=gitlab-runner.service -n 100 --no-pager` |
+| 容器 | `docker logs gitlab-runner` |
+| Kubernetes (Helm) | `kubectl logs deployment/gitlab-runner -n gitlab-runner` |
+
+需要更多細節時，把全域的 `log_level` 設為 `debug`。也可以暫時停止服務，在前景以除錯模式執行:
+
+```sh
+sudo gitlab-runner stop
+sudo gitlab-runner --debug run
+```
+
+:::caution
+使用 shell executor 時，前景以 root 執行 `gitlab-runner run` 會讓 job 以 root 身分執行。除錯時改用 `log_level = "debug"`。
+:::
+
+## 排查流程
+
+遇到問題時依序檢查:
+
+1. `gitlab-runner verify`: runner 能否用目前的 token 連到 GitLab。
+2. GitLab UI 中 runner 的狀態: `online`，`offline` 或 `stale`，是否被暫停。
+3. job 的 tags 與 runner 的 tags 是否相符，job 所在的分支是否符合 Protected 設定。
+4. runner 記錄中的錯誤訊息。
+5. job log 最上方的 runner 名稱，executor 與映像檔資訊。
+
+## 常見問題
+
+### job 一直 pending
+
+- 沒有符合 tags 的 runner: 比對 job 的 `tags` 與 runner 的 tags。job 沒有 tags 時，確認 runner 啟用了 **Run untagged jobs**。
+- runner 是 Protected，但 job 在未受保護的分支上執行。
+- runner 已經達到 `concurrent` 或 `limit` 上限。
+- runner 是 `offline`: 檢查服務是否在執行，以及主機能否連到 GitLab。
+
+### Permission denied: /var/run/docker.sock
+
+- 確認 `gitlab-runner` 使用者在 `docker` 群組中，或改用 rootless Docker 或 Podman 的 socket。
+- 在啟用 SELinux 的系統上，檢查 audit 記錄中是否有拒絕紀錄，必要時在掛載參數加上 `:Z`。
+
+### x509: certificate signed by unknown authority
+
+自架 GitLab 使用私有 CA 時，runner 需要信任這個 CA。把 CA 憑證放在 `/etc/gitlab-runner/certs/` 下，以 GitLab 主機名稱命名，例如 `gitlab.example.com.crt`，或在 `[[runners]]` 中用 `tls-ca-file` 指定。詳細作法請參考 [Self-signed certificates](https://docs.gitlab.com/runner/configuration/tls-self-signed/)。
+
+### Job failed (system failure): preparing environment
+
+shell executor 最常見的原因是 `gitlab-runner` 使用者的 shell 設定檔，例如 `.bash_logout` 中的 `clear` 指令。移除或註解這些指令。啟用 SELinux 的系統也可能造成這個錯誤。
+
+### pull access denied 或映像檔拉取失敗
+
+- 確認映像檔名稱與 tag 正確。
+- 私有 registry 需要在 CI/CD 變數 `DOCKER_AUTH_CONFIG` 中提供認證，或在 runner 主機上設定。
+- 檢查 `pull_policy` 與 `allowed_images` 是否阻擋了這個映像檔。
+
+### Docker Hub 的拉取次數限制
+
+大量 job 從 Docker Hub 拉取映像檔時可能遇到 rate limit。使用 GitLab Dependency Proxy，自架 registry mirror，或把常用映像檔複製到自己的 registry。
+
+更多問題請參考 [Troubleshooting GitLab Runner](https://docs.gitlab.com/runner/faq/)。

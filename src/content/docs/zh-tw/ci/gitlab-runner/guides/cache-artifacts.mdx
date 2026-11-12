@@ -1,0 +1,81 @@
+---
+title: 快取與 artifacts
+description: cache 與 artifacts 的差異，runner 把快取存在哪裡，以及多台 runner 如何以 S3 共用分散式快取。
+sidebar:
+  label: 快取與 artifacts
+  order: 3
+---
+
+cache 與 artifacts 都會把檔案保存到 job 之外，但用途與存放位置完全不同。混用兩者是 pipeline 變慢或結果不一致的常見原因。
+
+## cache 與 artifacts 的差異
+
+| 項目 | cache | artifacts |
+| --- | --- | --- |
+| 用途 | 加速後續 job，例如相依套件 | 在 stage 之間傳遞建置結果，或提供下載 |
+| 存放位置 | runner 所在的主機，或分散式快取 | GitLab |
+| 可靠性 | 盡力而為，可能不存在 | 保證存在直到過期 |
+| 預設保存時間 | 無期限，依 runner 端清理 | 30 天，可用 `expire_in` 調整 |
+| 跨專案共用 | 不共用 | 可透過 API 或 `needs:project` 取得 |
+
+判斷原則: 檔案不存在時 job 仍然可以正確執行，只是比較慢，就使用 cache。下一個 job 必須拿到這些檔案才能執行，就使用 artifacts。
+
+## runner 把快取存在哪裡
+
+| executor | 本機快取位置 |
+| --- | --- |
+| shell | `/home/gitlab-runner/cache/<namespace>/<project>/<cache-key>/cache.zip` |
+| docker | Docker volume，例如 `/var/lib/docker/volumes/<volume-id>/_data/<namespace>/<project>/<cache-key>/cache.zip` |
+| kubernetes | 沒有持久的本機快取，需要分散式快取 |
+
+Docker executor 預設為每個 runner 建立快取 volume，名稱包含 runner ID 的雜湊值。同一台主機上的不同 runner 設定不會共用快取 volume。
+
+快取以 `cache:key` 區分。受保護分支與未受保護分支預設會加上 `-protected` 或 `-non_protected` 後綴，避免未受保護分支的 job 汙染受保護分支的快取。
+
+```yaml title=".gitlab-ci.yml"
+test:
+  image: node:24
+  cache:
+    key:
+      files:
+        - package-lock.json
+    paths:
+      - .npm/
+    fallback_keys:
+      - npm-$CI_DEFAULT_BRANCH
+  script:
+    - npm ci --cache .npm --prefer-offline
+    - npm test
+```
+
+`fallback_keys` 最多 5 個，找不到 `cache:key` 時依序嘗試。快取關鍵字的完整說明請參考 [Caching in GitLab CI/CD](https://docs.gitlab.com/ci/caching/)。
+
+## 分散式快取
+
+多台主機執行同一個專案的 job 時，本機快取只對執行過的那台主機有效。自動擴展的 runner 每次可能在新機器上執行，本機快取幾乎沒有作用。分散式快取把 `cache.zip` 上傳到物件儲存，所有 runner 都從同一個位置讀取。
+
+```toml title="config.toml"
+[[runners]]
+  [runners.cache]
+    Type = "s3"
+    Path = "gitlab-runner"
+    Shared = true
+    [runners.cache.s3]
+      ServerAddress = "s3.amazonaws.com"
+      BucketName = "example-runner-cache"
+      BucketLocation = "ap-northeast-1"
+      AuthenticationType = "iam"
+```
+
+- `Type` 可以是 `s3`，`gcs` 或 `azure`。MinIO 等 S3 相容儲存也使用 `s3`。
+- `Shared = true` 讓多個 runner 共用同一份快取。預設為 `false`，每個 runner 使用自己的快取路徑。
+- `AuthenticationType = "iam"` 使用主機或 Pod 的 IAM 角色，不需要把 `AccessKey` 與 `SecretKey` 寫進 `config.toml`。
+- 為儲存桶設定生命週期規則，例如 14 天後刪除，避免快取無限成長。
+
+完整欄位請參考 [Advanced configuration](https://docs.gitlab.com/runner/configuration/advanced-configuration/) 中的 `[runners.cache]` 章節。
+
+## 清理
+
+- Docker executor 的快取 volume 與舊映像檔會持續占用磁碟。官方提供 `clear-docker-cache` 腳本，可以用 cron 定期執行。
+- shell executor 的快取與建置目錄在 `gitlab-runner` 使用者的家目錄下，需要自行清理。
+- 磁碟空間不足會讓 job 以 system failure 失敗，監控 runner 主機的磁碟使用率。

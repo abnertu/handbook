@@ -1,0 +1,145 @@
+---
+title: config.toml 參考
+description: GitLab Runner 設定檔的結構，全域設定，[[runners]] 設定與各 executor 區段中最常用的欄位與預設值。
+sidebar:
+  label: config.toml
+  order: 1
+---
+
+`config.toml` 是 runner manager 唯一的設定檔。以 root 執行時位於 `/etc/gitlab-runner/config.toml`，以一般使用者執行時位於 `~/.gitlab-runner/config.toml`，容器中位於 `/etc/gitlab-runner/config.toml`。修改後 runner 會自動重新載入，`listen_address` 除外。
+
+本頁列出最常用的欄位。完整欄位與最新預設值以 [Advanced configuration](https://docs.gitlab.com/runner/configuration/advanced-configuration/) 為準。
+
+## 檔案結構
+
+```toml title="config.toml"
+# 全域設定
+concurrent = 4
+check_interval = 3
+log_level = "info"
+shutdown_timeout = 30
+
+[session_server]
+  listen_address = "[::]:8093"
+  session_timeout = 1800
+
+# 每個 [[runners]] 是 GitLab 中的一個 runner
+[[runners]]
+  name = "docker-runner"
+  url = "https://gitlab.com/"
+  token = "glrt-REDACTED"
+  executor = "docker"
+  limit = 4
+  [runners.docker]
+    image = "alpine:latest"
+    privileged = false
+    volumes = ["/cache"]
+  [runners.cache]
+    Type = "s3"
+    Shared = true
+    [runners.cache.s3]
+      ServerAddress = "s3.amazonaws.com"
+      BucketName = "example-runner-cache"
+```
+
+## 全域設定
+
+| 欄位 | 預設 | 說明 |
+| --- | --- | --- |
+| `concurrent` | 必填 | 所有 runner 設定合計同時執行的 job 上限，不能為 `0` |
+| `check_interval` | `3` | 向 GitLab 請求新 job 的間隔秒數，小於等於 `0` 時使用預設值 |
+| `log_level` | `info` | `debug`，`info`，`warn`，`error`，`fatal` 或 `panic` |
+| `log_format` | `runner` | `runner`，`text` 或 `json`，集中收集記錄時使用 `json` |
+| `shutdown_timeout` | `30` | 強制關閉前等待正在執行的 job 的秒數 |
+| `listen_address` | 未啟用 | Prometheus 指標端點，格式為 `<host>:<port>`，修改後需要重新啟動 |
+| `connection_max_age` | `15m` | 與 GitLab 的 TLS 連線保持時間 |
+
+## [session_server]
+
+讓使用者從 GitLab UI 開啟 job 的互動式 web terminal。`listen_address` 是 runner 監聽的位址，`advertise_address` 是 GitLab 用來連線的位址，未設定時使用 `listen_address`。`session_timeout` 預設 `1800` 秒。
+
+## [[runners]]
+
+| 欄位 | 預設 | 說明 |
+| --- | --- | --- |
+| `name` | | 說明用的名稱，不影響運作 |
+| `url` | | GitLab 網址 |
+| `token` | | runner authentication token，註冊時寫入，不是 registration token |
+| `executor` | | `shell`，`docker`，`docker-windows`，`docker-autoscaler`，`instance`，`kubernetes`，`ssh`，`virtualbox`，`parallels`，`custom` 或 `docker+machine` |
+| `limit` | `0` | 這個 runner 同時執行的 job 上限，`0` 代表不限制 |
+| `request_concurrency` | `1` | 同時向 GitLab 發出的取 job 請求數 |
+| `output_limit` | `4096` | job log 的大小上限，單位 KB |
+| `builds_dir` | 依 executor | 建置目錄。Docker 與 Kubernetes 為容器內的 `/builds`，shell 為 `$PWD/builds` |
+| `cache_dir` | 依 executor | 本機快取目錄。Docker executor 必須同時列在 `volumes` 中 |
+| `environment` | | 加入或覆寫 job 的環境變數，例如 `["LC_ALL=en_US.UTF-8"]` |
+| `shell` | 依平台 | 產生腳本使用的 shell，例如 `bash`，`sh` 或 `pwsh` |
+| `pre_build_script` | | 在每個 job 的腳本之前執行 |
+| `post_build_script` | | 在每個 job 的腳本之後執行 |
+| `clone_url` | | 覆寫 clone 原始碼使用的網址，GitLab 對外網址與內部網址不同時使用 |
+
+## [runners.docker]
+
+| 欄位 | 預設 | 說明 |
+| --- | --- | --- |
+| `image` | | job 沒有指定 `image` 時使用的映像檔 |
+| `privileged` | `false` | 以 privileged 模式執行 build 與 service 容器 |
+| `pull_policy` | `always` | `always`，`if-not-present` 或 `never`，可以用陣列指定多個 |
+| `allowed_images` | 全部允許 | job 可以使用的映像檔，支援萬用字元 |
+| `allowed_pull_policies` | 只允許 `pull_policy` | job 可以在 `.gitlab-ci.yml` 中指定的拉取政策 |
+| `volumes` | | 額外掛載的 volume，語法與 `docker run -v` 相同 |
+| `disable_cache` | `false` | 停用自動建立的本機快取 volume，不影響分散式快取 |
+| `cpus`，`memory` | | 限制每個 build 容器的 CPU 與記憶體 |
+| `shm_size` | | `/dev/shm` 的大小，單位 byte |
+| `host` | 本機 Docker | Docker daemon 位址，例如使用 Podman 的 `unix:///run/user/1000/podman/podman.sock` |
+| `tls_verify` | `false` | 連線到 Docker daemon 時是否驗證 TLS |
+
+job 中的 `services` 也可以在 runner 端用 `[[runners.docker.services]]` 指定，欄位包含 `name`，`alias`，`entrypoint`，`command` 與 `environment`。
+
+## [runners.cache]
+
+| 欄位 | 預設 | 說明 |
+| --- | --- | --- |
+| `Type` | | `s3`，`gcs` 或 `azure` |
+| `Path` | | 快取網址的前綴路徑 |
+| `Shared` | `false` | 多個 runner 共用同一份快取 |
+
+`[runners.cache.s3]` 常用欄位: `ServerAddress`，`BucketName`，`BucketLocation`，`AuthenticationType` (`iam` 或 `access-key`)，`AccessKey`，`SecretKey`，`Insecure`，`PathStyle`。`[runners.cache.gcs]` 與 `[runners.cache.azure]` 的欄位請參考官方文件。
+
+## [runners.kubernetes]
+
+| 欄位 | 說明 |
+| --- | --- |
+| `namespace` | 建立 job Pod 的 namespace |
+| `image` | job 沒有指定 `image` 時使用的映像檔 |
+| `cpu_request`，`cpu_limit` | build 容器的 CPU request 與 limit |
+| `memory_request`，`memory_limit` | build 容器的記憶體 request 與 limit |
+| `service_account` | job Pod 使用的 service account |
+| `privileged` | 以 privileged 模式執行容器 |
+| `poll_timeout` | 等待 Pod 就緒的秒數，預設 `180` |
+| `pod_labels` | 加到每個 job Pod 的 labels |
+
+## [runners.autoscaler]
+
+Docker Autoscaler 與 Instance executor 使用的區段。
+
+| 欄位 | 說明 |
+| --- | --- |
+| `plugin` | fleeting plugin，例如 `aws`，`googlecloud` 或 `azure` |
+| `capacity_per_instance` | 每台機器同時執行的 job 數 |
+| `max_use_count` | 每台機器執行幾個 job 後就刪除，`1` 代表每個 job 都用新機器 |
+| `max_instances` | 機器數量上限 |
+| `[runners.autoscaler.plugin_config]` | plugin 專用設定，例如 AWS Auto Scaling group 的 `name` |
+| `[runners.autoscaler.connector_config]` | 連線到機器的設定，例如 `username` 與 `use_external_addr` |
+| `[[runners.autoscaler.policy]]` | 閒置機器的政策，例如 `idle_count` 與 `idle_time` |
+
+## [runners.feature_flags]
+
+功能旗標可以在這裡設定，也可以用 `environment` 或 CI/CD 變數設定。優先順序為 `[runners.feature_flags]`，CI/CD 變數，`environment`，最後是預設值。
+
+```toml title="config.toml"
+[[runners]]
+  [runners.feature_flags]
+    FF_NETWORK_PER_BUILD = true
+```
+
+所有旗標請參考 [Feature flags](https://docs.gitlab.com/runner/configuration/feature-flags/)。

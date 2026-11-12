@@ -1,0 +1,69 @@
+---
+title: 建立與註冊流程
+description: runner authentication token 取代 registration token 的原因，兩種流程的差異，以及 token 的保管與輪替。
+sidebar:
+  label: 建立與註冊流程
+  order: 3
+---
+
+GitLab 有兩種把 runner 連到 GitLab 的流程。新的流程使用 runner authentication token，舊的流程使用 registration token。新的 runner 一律使用新流程。
+
+## 兩種流程的比較
+
+| 項目 | runner authentication token (目前) | registration token (已棄用) |
+| --- | --- | --- |
+| token 前綴 | `glrt-` | 無固定前綴 |
+| 誰建立 runner | 使用者先在 GitLab UI 或 API 建立 runner | runner 在註冊時自己建立 |
+| tags 與存取設定 | 建立 runner 時在 GitLab 設定 | 在 `register` 指令中以參數設定 |
+| token 範圍 | 一個 token 對應一個 runner | 一個 token 可以註冊任意多個 runner |
+| 狀態 | 建議使用 | GitLab 15.6 棄用，17.0 起預設停用，預計 20.0 移除 |
+
+舊流程的問題在於 registration token 是專案或群組層級的共用祕密。任何拿到這個 token 的人都可以註冊新的 runner，而且 GitLab 無法追蹤 runner 由誰建立。新流程把建立 runner 的權限交給 GitLab 的角色權限控管，runner 只拿到屬於自己的 token。
+
+棄用時程請參考 [Registering runners](https://docs.gitlab.com/runner/register/) 與 [GitLab token overview](https://docs.gitlab.com/security/tokens/)。GitLab 原本計畫在 18.0 移除 registration token，後來延後，目前文件標示預計在 20.0 移除。
+
+## 新流程的步驟
+
+1. 在 GitLab 中建立 runner，設定 tags，run untagged，protected 等屬性。需要的角色依範圍不同: project runner 需要 Maintainer，group runner 需要 Owner，instance runner 需要管理員。
+2. GitLab 顯示一次 runner authentication token，格式為 `glrt-` 開頭的字串。
+3. 在 runner 主機上執行 `gitlab-runner register --token glrt-...`，把 token 寫入 `config.toml`。
+4. runner manager 開始以這個 token 向 GitLab 要求 job。
+
+也可以用 API 自動化第一步。下列指令以 personal access token 建立一個 project runner，access token 需要 `create_runner` scope:
+
+```sh
+curl --request POST \
+  --header "PRIVATE-TOKEN: $GITLAB_TOKEN" \
+  --data "runner_type=project_type" \
+  --data "project_id=$PROJECT_ID" \
+  --data "tag_list=docker,linux" \
+  --data "description=docker-runner" \
+  "https://gitlab.com/api/v4/user/runners"
+```
+
+回應中的 `token` 欄位就是 runner authentication token，GitLab 之後不會再顯示它。API 參數請參考 [Create a runner linked to a user](https://docs.gitlab.com/api/users/#create-a-runner-linked-to-a-user)。
+
+## 註冊時不能設定的參數
+
+使用 runner authentication token 註冊時，下列參數由 GitLab 端的 runner 設定決定，在 `register` 指令中指定也不會生效:
+
+- `--tag-list`
+- `--run-untagged`
+- `--locked`
+- `--access-level`
+- `--maximum-timeout`
+- `--paused`
+- `--maintenance-note`
+
+自動化腳本從舊流程遷移時，要把這些參數移到建立 runner 的 API 呼叫中。
+
+## token 的保管
+
+- runner authentication token 寫在 `config.toml` 的 `token` 欄位，這個檔案要限制只有 root 或 runner 服務帳號可以讀取。
+- 不要把 token 寫進 `.gitlab-ci.yml`，容器映像檔或版本控制。自動化部署時從祕密管理系統注入，例如 Kubernetes Secret 或 Vault。
+- token 外洩時，在 GitLab 中重設 token 或刪除 runner。也可以用 Runners API 輪替 token，或在 runner 主機上執行 `gitlab-runner reset-token`。
+- 同一個 token 部署到多台主機時，GitLab 會把每台主機顯示為同一個 runner 的不同 manager。這適合水平擴展同一種 runner，但所有主機共用相同的 tags 與設定。
+
+## 下一步
+
+依 [安裝與註冊](/handbook/zh-tw/ci/gitlab-runner/guides/install-register/) 實際建立並註冊第一個 runner。

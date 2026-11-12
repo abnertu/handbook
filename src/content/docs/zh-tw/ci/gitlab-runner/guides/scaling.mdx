@@ -1,0 +1,72 @@
+---
+title: 併發與擴展
+description: 用 concurrent，limit 與 request_concurrency 控制同時執行的 job 數量，並選擇垂直擴展，水平擴展或自動擴展。
+sidebar:
+  label: 併發與擴展
+  order: 2
+---
+
+runner 能同時執行多少 job，由 `config.toml` 中的三個設定共同決定。設錯其中一個，最常見的結果是 job 一直 pending，或主機資源被耗盡。
+
+## 三個併發設定
+
+| 設定 | 位置 | 預設 | 意義 |
+| --- | --- | --- | --- |
+| `concurrent` | 全域 | 必填，不能為 `0` | 整個 runner manager 同時執行的 job 上限，涵蓋所有 `[[runners]]` |
+| `limit` | `[[runners]]` | `0`，不限制 | 這個 runner 設定同時執行的 job 上限 |
+| `request_concurrency` | `[[runners]]` | `1` | 這個 runner 設定同時向 GitLab 發出的取 job 請求數 |
+
+實際能同時執行的 job 數是 `concurrent` 與各 runner 的 `limit` 中較小的那個。例如下列設定最多同時執行 6 個 job，其中 docker runner 最多 4 個，shell runner 最多 2 個:
+
+```toml title="config.toml"
+concurrent = 6
+
+[[runners]]
+  name = "docker-runner"
+  executor = "docker"
+  limit = 4
+  request_concurrency = 2
+
+[[runners]]
+  name = "shell-runner"
+  executor = "shell"
+  limit = 2
+```
+
+- `concurrent` 小於所有 `limit` 的總和時，各 runner 設定會互相競爭 `concurrent` 的名額。
+- `request_concurrency` 大於 `1` 可以讓 job 較多時更快取得新 job，但會增加對 GitLab 的請求量。job 很多卻一直 pending 時，可以觀察 `gitlab_runner_request_concurrency_exceeded_total` 指標再調整。
+- 修改 `config.toml` 後 runner 會自動重新載入設定，不需要重新啟動服務。只有 `listen_address` 需要重新啟動。
+
+設定的完整說明請參考 [Advanced configuration](https://docs.gitlab.com/runner/configuration/advanced-configuration/)。
+
+## 決定 concurrent 的值
+
+先估算單一 job 需要的資源，再除以主機的可用資源。例如一台 8 vCPU，16 GB 記憶體的主機，典型 job 需要 2 vCPU 與 3 GB 記憶體，`concurrent` 設為 4 比較安全，並保留資源給 Docker daemon 與作業系統。
+
+Docker 與 Kubernetes executor 可以限制每個 job 的資源，讓估算更可靠:
+
+```toml title="config.toml"
+[runners.docker]
+  cpus = "2"
+  memory = "3g"
+```
+
+## 擴展方式
+
+| 方式 | 作法 | 適用情境 | 限制 |
+| --- | --- | --- | --- |
+| 垂直擴展 | 換更大的主機，提高 `concurrent` | 負載穩定，job 數量可預測 | 單點故障，閒置時浪費資源 |
+| 水平擴展 | 多台主機註冊同一個 runner 或不同 runner | 需要高可用，負載中等 | 需要分散式快取，主機數固定 |
+| 自動擴展 | Docker Autoscaler，Instance executor 或 Kubernetes executor | 負載變化大，雲端環境 | 設定較複雜，啟動新機器有延遲 |
+
+- 水平擴展時，同一個 runner authentication token 可以部署到多台主機，GitLab 會把每台主機視為該 runner 的一個 manager。
+- 多台主機之間的快取不會自動共享，需要設定 [分散式快取](/handbook/zh-tw/ci/gitlab-runner/guides/cache-artifacts/)。
+- 自動擴展的細節請參考 [Docker Autoscaler 與 Instance executor](/handbook/zh-tw/ci/gitlab-runner/executors/docker-autoscaler/) 與 [Kubernetes executor](/handbook/zh-tw/ci/gitlab-runner/executors/kubernetes/)。
+
+## 常見問題
+
+**job 一直 pending，但 runner 是 online**: 先確認 tags 是否符合。tags 正確時，檢查 runner 是否已經達到 `concurrent` 或 `limit` 上限，可以在 runner 主機上用 `journalctl --unit=gitlab-runner.service` 查看是否有正在執行的 job。
+
+**提高 concurrent 後沒有變快**: 瓶頸可能在主機的 CPU，磁碟 I/O 或網路。觀察主機資源使用率，必要時改用水平或自動擴展。
+
+**job 開始前等待很久**: 檢查 `check_interval` 是否被設成很大的值，以及 runner 記錄中是否出現 long polling 相關的警告。

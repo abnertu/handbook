@@ -1,0 +1,159 @@
+---
+title: 安裝與註冊 runner
+description: 在 Linux 主機或容器中安裝 GitLab Runner，在 GitLab 建立 runner，並以 runner authentication token 註冊。
+sidebar:
+  label: 安裝與註冊
+  order: 1
+---
+
+import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+本指南完成三件事: 安裝 `gitlab-runner`，在 GitLab 建立 runner，在主機上註冊 runner。完成後 runner 會出現在 GitLab 中並顯示為 `online`。
+
+## 先決條件
+
+- 一台 Linux 主機，或一台已安裝 Docker 的主機。
+- GitLab 專案的 Maintainer 角色，用於建立 project runner。
+- 主機可以用 HTTPS 連到 GitLab，例如 `https://gitlab.com`。runner 不需要開放入站連接埠。
+
+## 安裝
+
+<Tabs>
+<TabItem label="Debian/Ubuntu">
+
+先下載並檢查官方的套件庫設定腳本，再執行它:
+
+```sh
+curl -L "https://packages.gitlab.com/install/repositories/runner/gitlab-runner/script.deb.sh" -o script.deb.sh
+less script.deb.sh
+sudo bash script.deb.sh
+sudo apt install gitlab-runner
+```
+
+</TabItem>
+<TabItem label="RHEL/Fedora">
+
+```sh
+curl -L "https://packages.gitlab.com/install/repositories/runner/gitlab-runner/script.rpm.sh" -o script.rpm.sh
+less script.rpm.sh
+sudo bash script.rpm.sh
+sudo dnf install gitlab-runner
+```
+
+</TabItem>
+<TabItem label="容器">
+
+把設定目錄掛載到主機，讓容器重建後設定仍然保留。掛載 Docker socket 讓這個 runner 可以使用 Docker executor:
+
+```sh
+docker run -d --name gitlab-runner --restart always \
+  -v /srv/gitlab-runner/config:/etc/gitlab-runner \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  gitlab/gitlab-runner:latest
+```
+
+正式環境請把 `latest` 換成與 GitLab 相同的版本 tag，例如 `v19.5.3`，避免容器重建時意外升級。
+
+</TabItem>
+</Tabs>
+
+套件安裝會建立 `gitlab-runner` 系統使用者，並把 runner 註冊為 systemd 服務。確認安裝結果:
+
+```sh
+gitlab-runner --version
+sudo gitlab-runner status
+```
+
+安裝細節請參考 [Install GitLab Runner using the official repositories](https://docs.gitlab.com/runner/install/linux-repository/) 與 [Run GitLab Runner in a container](https://docs.gitlab.com/runner/install/docker/)。
+
+:::caution[掛載 Docker socket]
+掛載 `/var/run/docker.sock` 等於讓 runner 容器取得主機 Docker 的完整控制權。只在專用的 runner 主機上這樣做，安全考量請參考 [安全強化](/handbook/zh-tw/ci/gitlab-runner/guides/security/)。
+:::
+
+## 在 GitLab 建立 runner
+
+<Steps>
+
+1. 在專案中開啟 **Settings** > **CI/CD**，展開 **Runners**。
+
+2. 選擇 **Create project runner**。
+
+3. 選擇作業系統，輸入 tags，例如 `docker,linux`。沒有 tags 時勾選 **Run untagged**。
+
+4. 視需要填寫說明，**Protected** 與 **Maximum job timeout**，然後選擇 **Create runner**。
+
+5. 複製頁面顯示的 runner authentication token，它以 `glrt-` 開頭。離開頁面後 GitLab 不會再顯示這個 token。
+
+</Steps>
+
+## 註冊 runner
+
+用非互動模式註冊，讓同一個指令可以放進自動化腳本。下列指令以 Docker executor 註冊，預設映像檔為 `alpine:latest`:
+
+<Tabs>
+<TabItem label="Linux 套件">
+
+```sh
+sudo gitlab-runner register \
+  --non-interactive \
+  --url "https://gitlab.com/" \
+  --token "$RUNNER_TOKEN" \
+  --executor "docker" \
+  --docker-image alpine:latest \
+  --description "docker-runner"
+```
+
+</TabItem>
+<TabItem label="容器">
+
+```sh
+docker run --rm -v /srv/gitlab-runner/config:/etc/gitlab-runner gitlab/gitlab-runner register \
+  --non-interactive \
+  --url "https://gitlab.com/" \
+  --token "$RUNNER_TOKEN" \
+  --executor "docker" \
+  --docker-image alpine:latest \
+  --description "docker-runner"
+```
+
+</TabItem>
+</Tabs>
+
+- `--url` 是 GitLab 的網址，自架 GitLab 請換成自己的網址。
+- `--token` 是上一步取得的 `glrt-` token。先用 `read -rs RUNNER_TOKEN` 輸入並存在環境變數中，避免 token 留在 shell 歷史記錄。
+- tags，protected 等屬性已經在 GitLab 端設定，這裡不需要也不能再指定。
+
+註冊會在 `config.toml` 新增一個 `[[runners]]` 區段。以 root 執行時檔案位於 `/etc/gitlab-runner/config.toml`，以一般使用者執行時位於 `~/.gitlab-runner/config.toml`。完整參數請參考 [Registering runners](https://docs.gitlab.com/runner/register/)。
+
+## 驗證
+
+```sh
+sudo gitlab-runner verify
+sudo gitlab-runner list
+```
+
+`verify` 會確認每個 runner 設定都能用目前的 token 連到 GitLab。回到 GitLab 的 **Settings** > **CI/CD** > **Runners**，runner 旁邊應該顯示綠色的 `online` 狀態。
+
+再推送一個最小的 pipeline 確認 runner 能執行 job:
+
+```yaml title=".gitlab-ci.yml"
+hello:
+  tags:
+    - docker
+  script:
+    - echo "Hello from $CI_RUNNER_DESCRIPTION"
+    - cat /etc/os-release
+```
+
+## 移除 runner
+
+```sh
+sudo gitlab-runner unregister --name "docker-runner"
+```
+
+`unregister` 會從 `config.toml` 移除設定並通知 GitLab。之後在 GitLab UI 中刪除 runner，讓 token 失效。
+
+## 下一步
+
+- 閱讀 [config.toml 參考](/handbook/zh-tw/ci/gitlab-runner/reference/config-toml/)，了解註冊產生的設定。
+- 閱讀 [選擇 executor](/handbook/zh-tw/ci/gitlab-runner/executors/)，決定要使用哪一種 executor。

@@ -1,0 +1,70 @@
+---
+title: 安全強化
+description: 各種 executor 的安全風險，privileged 模式與 Docker socket 的影響，以及保護憑證與隔離 job 的作法。
+sidebar:
+  label: 安全強化
+  order: 4
+---
+
+runner 執行的是任何有權限推送程式碼的人所寫的腳本。安全設計的前提是: job 中的程式碼可能是惡意的，runner 要限制它能接觸到的主機，網路與憑證。
+
+## 各 executor 的風險
+
+| executor | 隔離程度 | 主要風險 |
+| --- | --- | --- |
+| shell | 無，job 直接在主機上執行 | job 可以讀取主機上 `gitlab-runner` 使用者能讀的所有檔案，前一個 job 可以留下惡意檔案 |
+| docker | 容器隔離 | 在非 privileged 模式下可視為安全。privileged 模式或掛載 Docker socket 會讓 job 取得主機控制權 |
+| kubernetes | Pod 隔離 | privileged 容器，`hostPath` 掛載與過大的 service account 權限 |
+| docker-autoscaler，instance | 每個 job 可以使用全新的 VM | 機器重複使用時，前一個 job 可能影響下一個 job |
+
+官方對 shell executor 的說明是: 執行 job 會對 runner 主機與網路帶來高度安全風險，只用於可信任的建置。詳細說明請參考 [Security for self-managed runners](https://docs.gitlab.com/runner/security/)。
+
+## privileged 模式
+
+`privileged = true` 讓 build 容器與所有 service 容器取得主機的完整權限，等於關閉容器的安全機制。Docker-in-Docker 需要 privileged 模式，這是它最大的代價。
+
+- 只在專用，短生命週期的 VM 上使用 privileged runner，例如 `max_use_count = 1` 的 Docker Autoscaler。
+- privileged runner 設為 **Protected**，只執行受保護分支的 job。
+- 不需要 Docker 時，改用 Buildah 或 BuildKit rootless 模式建置映像檔，詳見 [實作練習: 建置容器映像檔](/handbook/zh-tw/ci/gitlab-runner/labs/06-build-images/)。
+
+## Docker socket 綁定
+
+把 `/var/run/docker.sock` 掛載進 job 容器，可以讓 job 使用主機的 Docker daemon，不需要 privileged 模式。但 job 可以透過 socket 啟動一個掛載主機根目錄的容器，實際上取得主機 root 權限。官方文件也說明這種作法實質上關閉了容器的安全機制。
+
+只有在下列條件都成立時才使用 socket 綁定:
+
+- runner 是專案專屬的 project runner，並且鎖定在目前專案。
+- 所有能推送程式碼的人都是可信任的。
+- 主機上沒有其他服務或憑證。
+
+## 映像檔拉取政策
+
+`pull_policy` 預設為 `always`。在共用 runner 上使用 `if-not-present` 時，一個專案拉下來的私有映像檔會留在主機上，其他專案的 job 可以不經授權直接使用它。共用 runner 請使用 `always` 或 `never`。
+
+用 `allowed_images` 與 `allowed_pull_policies` 限制 job 可以使用的映像檔與政策:
+
+```toml title="config.toml"
+[runners.docker]
+  pull_policy = ["always"]
+  allowed_images = ["registry.example.com/ci/*:*", "alpine:*", "node:*"]
+  allowed_pull_policies = ["always"]
+```
+
+## 保護憑證
+
+- 部署憑證放在 GitLab 的受保護 CI/CD 變數中，搭配 Protected runner 使用。
+- 雲端存取優先使用 OIDC (`id_tokens`) 取得短期憑證，不在 runner 主機上存放長期金鑰。
+- runner 主機的 `config.toml` 包含 runner token，權限設為只有 root 可讀。
+- 不同信任等級的專案使用不同的 runner，例如開源專案的 merge request 與內部部署 job 不共用 runner。
+
+## 網路隔離
+
+- runner 只需要連到 GitLab 與必要的套件來源，用防火牆限制出站連線。
+- 把 runner 放在獨立的網段，不要和資料庫或內部服務放在同一個網段。
+- 監控端點 `listen_address` 沒有身分驗證，只綁定在內部位址，例如 `127.0.0.1:9252`。
+
+## 其他檢查項目
+
+- 共用 runner 上避免使用 `GIT_STRATEGY: fetch`，前一個 job 留下的檔案可能被下一個 job 使用。
+- 靜態主機上的 shell 或 SSH executor 可以啟用 `FF_ENABLE_JOB_CLEANUP`，在 job 結束後清理建置目錄。
+- 定期升級 runner，安全修正只會發布在受支援的版本。

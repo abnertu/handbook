@@ -1,0 +1,76 @@
+---
+title: 架構與 job 生命週期
+description: GitLab，runner manager，runner 與 executor 的分工，以及一個 job 從排入佇列到完成的每個階段。
+sidebar:
+  label: 架構與 job 生命週期
+  order: 1
+---
+
+理解 runner 的第一步是分清楚四個角色: GitLab 負責排程，runner manager 負責取得 job，executor 負責建立執行環境，job 在執行環境中執行腳本。
+
+## 元件與術語
+
+| 術語 | 說明 |
+| --- | --- |
+| GitLab | 保存專案，pipeline 與 job 佇列。pipeline 建立後，每個 job 都在佇列中等待合適的 runner。 |
+| runner manager | 讀取 `config.toml` 並同時執行其中所有 runner 設定的程序，也就是安裝在主機上的 `gitlab-runner` 服務。 |
+| runner 設定 | `config.toml` 中的一個 `[[runners]]` 區段，在 GitLab UI 中顯示為一個 runner。 |
+| executor | runner 設定中的 `executor` 值，決定 job 在什麼環境中執行，例如 `shell`，`docker` 或 `kubernetes`。 |
+| helper image | Docker 與 Kubernetes executor 使用的輔助映像檔，負責 clone 原始碼，還原與上傳快取，下載與上傳 artifacts。 |
+
+一台主機通常只執行一個 runner manager，但一個 `config.toml` 可以包含多個 `[[runners]]` 區段，例如一個使用 `docker` executor，另一個使用 `shell` executor。同一個 runner 也可以由多台主機上的 runner manager 共用，GitLab 會把每台主機視為該 runner 的一個 manager。
+
+```text title="元件關係"
+GitLab instance
+  └─ job 佇列
+       ▲  POST /api/v4/jobs/request (runner token)
+       │
+runner manager (gitlab-runner run, 讀取 config.toml)
+  ├─ [[runners]] name = "docker-runner"  executor = "docker"
+  │     └─ 每個 job 一組容器: helper 容器 + build 容器 + service 容器
+  └─ [[runners]] name = "shell-runner"   executor = "shell"
+        └─ 在主機上以 gitlab-runner 使用者執行腳本
+```
+
+## runner 如何取得 job
+
+runner 主動向 GitLab 要求 job，GitLab 不會主動連線到 runner。因此 runner 只需要能連到 GitLab 的 HTTPS 端點，不需要開放任何入站連接埠。
+
+1. runner manager 每隔 `check_interval` 秒 (預設 3 秒) 為每個 runner 設定呼叫一次 `POST /api/v4/jobs/request`，請求中帶有 runner authentication token。
+2. GitLab 在佇列中找出符合條件的 job: runner 的類型與專案相符，tags 相符，受保護設定相符，而且 runner 未暫停。
+3. 有符合的 job 時，GitLab 回傳 job payload，其中包含腳本，變數與一個只在 job 執行期間有效的 `CI_JOB_TOKEN`。
+4. runner 把執行記錄 (job log) 分段送回 GitLab，結束時回報成功或失敗。
+
+GitLab 前端的 Workhorse 支援 long polling: 沒有 job 時，請求會保持一段時間，有新 job 時立即回應，以降低延遲與請求數量。遇到 job 開始前延遲很久的情況，請參考 [Advanced configuration](https://docs.gitlab.com/runner/configuration/advanced-configuration/) 中關於 long polling 的說明。
+
+## job 生命週期
+
+以 Docker executor 為例，一個 job 會經過下列階段。其他 executor 的階段相同，只是執行環境不同。
+
+| 階段 | 做什麼 | 在哪裡執行 |
+| --- | --- | --- |
+| Prepare | 拉取映像檔，建立並啟動 `services` | runner manager 呼叫 Docker API |
+| Pre-job | clone 或 fetch 原始碼，還原快取，下載前一個 stage 的 artifacts | helper 容器 |
+| Job | 依序執行 `before_script`，`script` | build 容器，使用 job 指定的 `image` |
+| Post-job | 執行 `after_script`，建立並上傳快取，上傳 artifacts | helper 容器 |
+
+每個階段的細節請參考 [Docker executor](https://docs.gitlab.com/runner/executors/docker/) 官方文件。
+
+## runner 狀態
+
+GitLab 依 runner 最後一次連線的時間標示狀態:
+
+- `online`: 2 小時內曾經連線。
+- `offline`: 超過 2 小時沒有連線。
+- `stale`: 超過 7 天沒有連線。GitLab 會定期清除過時的 runner manager 紀錄。
+
+詳細規則請參考 [Runner scopes](https://docs.gitlab.com/ci/runners/runners_scope/)。
+
+## 版本相容性
+
+runner 與 GitLab 是獨立升級的兩個元件，升級 GitLab 不會升級 runner。官方建議 runner 的 major.minor 版本與 GitLab 相同。較舊的 runner 通常可以運作，但新功能可能無法使用，因此升級 GitLab 後也要規劃升級 runner。
+
+## 下一步
+
+- 閱讀 [runner 類型，tags 與存取控制](/handbook/zh-tw/ci/gitlab-runner/concepts/runner-scopes/)，了解 GitLab 如何決定哪個 runner 可以執行哪個 job。
+- 閱讀 [建立與註冊流程](/handbook/zh-tw/ci/gitlab-runner/concepts/tokens/)，了解 runner authentication token。

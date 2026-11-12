@@ -1,0 +1,67 @@
+---
+title: gitlab-runner 指令參考
+description: gitlab-runner 的註冊，服務管理，驗證與除錯指令，以及常用參數與訊號。
+sidebar:
+  label: gitlab-runner 指令
+  order: 2
+---
+
+以 root 執行指令時讀寫 `/etc/gitlab-runner/config.toml`，以一般使用者執行時讀寫 `~/.gitlab-runner/config.toml`。用 `--config` 可以指定其他設定檔。完整說明請參考 [GitLab Runner commands](https://docs.gitlab.com/runner/commands/)。
+
+## 註冊與管理 runner 設定
+
+| 指令 | 說明 |
+| --- | --- |
+| `gitlab-runner register` | 以 runner authentication token 新增一個 `[[runners]]` 設定 |
+| `gitlab-runner unregister --name <name>` | 移除指定的 runner 設定，`--all-runners` 移除全部 |
+| `gitlab-runner list` | 列出設定檔中的所有 runner |
+| `gitlab-runner verify` | 確認每個 runner 能用目前的 token 連到 GitLab，`--delete` 會移除無效的設定 |
+| `gitlab-runner reset-token` | 向 GitLab 重設 runner authentication token 並更新設定檔 |
+
+`register` 常用參數:
+
+| 參數 | 說明 |
+| --- | --- |
+| `--non-interactive` | 不詢問，所有值由參數提供 |
+| `--url` | GitLab 網址 |
+| `--token` | `glrt-` 開頭的 runner authentication token |
+| `--executor` | executor 名稱，例如 `docker` |
+| `--description` | 寫入 `config.toml` 的 `name` |
+| `--docker-image` | Docker executor 的預設映像檔 |
+| `--docker-privileged` | 啟用 privileged 模式 |
+| `--docker-volumes` | 額外掛載的 volume，可以重複指定 |
+| `--template-config` | 以 TOML 範本提供其他設定，只支援一個 `[[runners]]` 區段 |
+
+## 服務管理
+
+| 指令 | 說明 |
+| --- | --- |
+| `gitlab-runner install` | 把 runner 安裝為系統服務，套件安裝已自動完成 |
+| `gitlab-runner uninstall` | 移除系統服務 |
+| `gitlab-runner start` | 啟動服務 |
+| `gitlab-runner stop` | 停止服務 |
+| `gitlab-runner restart` | 重新啟動服務 |
+| `gitlab-runner status` | 顯示服務狀態 |
+| `gitlab-runner run` | 在前景執行 runner manager，服務實際執行的就是這個指令 |
+
+## 除錯
+
+| 指令 | 說明 |
+| --- | --- |
+| `gitlab-runner --debug run` | 以除錯記錄在前景執行 |
+| `gitlab-runner --version` | 顯示版本，架構與建置資訊 |
+| `gitlab-runner fleeting install` | 安裝 `config.toml` 中指定的 fleeting plugin |
+
+## 訊號
+
+| 訊號 | 對 `gitlab-runner run` 的作用 |
+| --- | --- |
+| `SIGQUIT` | 停止接收新 job，等待正在執行的 job 結束後退出 |
+| `SIGTERM`，`SIGINT` | 立即中止正在執行的 job 並退出 |
+| `SIGHUP` | 重新載入設定檔 |
+
+升級或維護主機前，先在 GitLab 中暫停 runner，或送出 `SIGQUIT` 讓 job 正常結束。
+
+:::note[gitlab-runner exec]
+舊版的 `gitlab-runner exec` 可以在本機執行單一 job，目前的指令列表已經不包含這個指令。要在本機測試 pipeline，請推送到測試分支，或使用專用的測試專案。
+:::
