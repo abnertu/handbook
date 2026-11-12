@@ -1,0 +1,58 @@
+---
+title: GitLab Runner 概觀
+description: 說明 runner 與 executor 的關係。
+sidebar:
+  label: 概觀
+hero:
+  tagline: 系統化的技術手冊
+  actions:
+    - text: 開始閱讀
+      link: /handbook/zh-tw/
+---
+
+import { Aside, Card, Steps } from '@astrojs/starlight/components';
+export const version = '18.5';
+
+{/* MDX comment */}
+<!-- 註解：這裡不檢查 -->
+
+使用 Docker executor (容器隔離) 執行 job。
+
+注意: 這一步需要 root。
+
+設定 "concurrent"，"limit" 兩個值。
+
+請參考 [官方文件](https://docs.gitlab.com/runner/) 的說明。
+
+![架構圖](../../assets/arch.png)
+
+這是 **重點** 文字，設定 `concurrent` 為 4。
+
+磁碟使用率 80% 時清理，保留 10 GB 快取。shell/docker executor 都支援。
+
+為什麼要用 tags? 因為 runner 會挑選 job。
+
+:::note[執行前確認]
+確認 runner 已經註冊。
+:::
+
+<Card title="安裝 (Linux)" icon="rocket">
+  在主機上安裝 runner。
+</Card>
+
+<Steps>
+1. 安裝 runner。
+2. 註冊 runner。
+</Steps>
+
+| 欄位 | 說明 |
+| :--- | ---: |
+| `concurrent` | 全域同時執行的 job 數 |
+
+```toml title="config.toml (範例)"
+# 程式碼區塊不檢查：（全形）
+concurrent = 4
+```
+
+- 第一項。
+- 第二項，包含 `limit`。
