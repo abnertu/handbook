@@ -73,6 +73,7 @@
 ## Site
 
 - Keep all content under `src/content/docs/zh-tw/`. Give a new language its own locale directory, so that no existing URL moves.
+- Keep `src/content/docs/404.md` at the docs root. Starlight looks up the `404` entry there for the localized 404 page.
 - Write internal links as absolute paths with the base and a trailing slash, such as `/handbook/zh-tw/ci/gitlab-runner/`. The links validator rejects relative links.
 - Write sidebar entries with `slug` or `autogenerate`, never `link`, so that the build checks them. Leave the locale out of these paths.
 - Keep smart punctuation off. It turns half-width quotes and dashes into typographic characters that the writing guide forbids.
