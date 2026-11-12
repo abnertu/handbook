@@ -75,7 +75,7 @@ import { Steps } from '@astrojs/starlight/components';
        - docker push "$CI_REGISTRY_IMAGE:dind-$CI_COMMIT_SHORT_SHA"
    ```
 
-3. 觀察 socket 綁定的風險。在 `lab-docker` runner 上暫時把 `/var/run/docker.sock` 加入 `volumes`，然後執行下列 job。它從 job 中讀取主機的 `/etc/hostname`:
+3. 觀察 socket 綁定的風險。在 `lab-docker` runner 上暫時把 `"/var/run/docker.sock:/var/run/docker.sock"` 加入 `volumes`，然後執行下列 job。它從 job 中讀取主機的 `/etc/hostname`:
 
    ```yaml title=".gitlab-ci.yml"
    socket-escape:

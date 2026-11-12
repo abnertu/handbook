@@ -83,6 +83,8 @@ import { Steps } from '@astrojs/starlight/components';
 - 把 `concurrent` 與 `limit` 改回原本的值。
 - 刪除快取 volume，或在 GitLab 的 **Build** > **Pipelines** 頁面選擇 **Clear runner caches**。
 
+參考: [Caching in GitLab CI/CD](https://docs.gitlab.com/ci/caching/)，[Advanced configuration](https://docs.gitlab.com/runner/configuration/advanced-configuration/)。
+
 ## 延伸挑戰
 
 - 修改 `package-lock.json`，確認 job 使用新的快取 key，並用 `fallback_keys` 讓第一次執行仍然能用舊快取。

@@ -37,7 +37,9 @@ import { Steps } from '@astrojs/starlight/components';
 
 2. 用練習 1 的方式註冊這兩個 runner 到同一個 runner 容器中。每次註冊都會在同一個 `config.toml` 中新增一個 `[[runners]]`。
 
-3. 推送下列 pipeline:
+3. 閱讀下一步的 pipeline，在推送前先寫下你預測每個 job 會交給哪個 runner，或不會執行。
+
+4. 推送下列 pipeline:
 
    ```yaml title=".gitlab-ci.yml"
    untagged:
@@ -65,8 +67,6 @@ import { Steps } from '@astrojs/starlight/components';
        - echo "deploy on $CI_RUNNER_DESCRIPTION from $CI_COMMIT_REF_NAME"
    ```
 
-4. 在推送前，先寫下你預測每個 job 會交給哪個 runner，或不會執行。
-
 5. 從預設分支建立一個未受保護的分支 `feature/test`，推送同一份 pipeline，觀察 `deploy` job。
 
 </Steps>
@@ -82,12 +82,14 @@ import { Steps } from '@astrojs/starlight/components';
 | `deploy` 在預設分支 | 由 `lab-deploy` 執行，預設分支預設為受保護分支 |
 | `deploy` 在 `feature/test` | 一直 pending，因為 `lab-deploy` 只執行受保護分支的 job |
 
-比較你在步驟 4 的預測與實際結果，找出預測錯誤的原因。
+比較你在步驟 3 的預測與實際結果，找出預測錯誤的原因。
 
 ## 清理
 
 - 取消 pending 的 job，刪除 `feature/test` 分支。
 - 用 `gitlab-runner unregister --name` 移除 `lab-general` 與 `lab-deploy`，並在 GitLab 中刪除這兩個 runner。
+
+參考: [Runner scopes](https://docs.gitlab.com/ci/runners/runners_scope/)，[Configuring runners](https://docs.gitlab.com/ci/runners/configure_runners/)。
 
 ## 延伸挑戰
 

@@ -83,6 +83,8 @@ job 結束後 runner 會自動刪除容器與網路。刪除練習拉下來的�
 docker image rm postgres:17
 ```
 
+參考: [Docker executor](https://docs.gitlab.com/runner/executors/docker/)，[Services](https://docs.gitlab.com/ci/services/)。
+
 ## 延伸挑戰
 
 - 把 service 的 `alias` 移除，找出 job 要用什麼主機名稱才能連到資料庫。

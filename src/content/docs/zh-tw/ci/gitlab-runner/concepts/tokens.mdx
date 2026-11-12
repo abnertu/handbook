@@ -12,15 +12,15 @@ GitLab 有兩種把 runner 連到 GitLab 的流程。新的流程使用 runner a
 
 | 項目 | runner authentication token (目前) | registration token (已棄用) |
 | --- | --- | --- |
-| token 前綴 | `glrt-` | 無固定前綴 |
+| token 前綴 | `glrt-`，經由舊流程參數建立時為 `glrtr-` | 無固定前綴 |
 | 誰建立 runner | 使用者先在 GitLab UI 或 API 建立 runner | runner 在註冊時自己建立 |
 | tags 與存取設定 | 建立 runner 時在 GitLab 設定 | 在 `register` 指令中以參數設定 |
 | token 範圍 | 一個 token 對應一個 runner | 一個 token 可以註冊任意多個 runner |
-| 狀態 | 建議使用 | GitLab 15.6 棄用，17.0 起預設停用，預計 20.0 移除 |
+| 狀態 | 建議使用 | 已棄用，17.0 起管理員或群組 Owner 可以停用，預計 20.0 移除 |
 
 舊流程的問題在於 registration token 是專案或群組層級的共用祕密。任何拿到這個 token 的人都可以註冊新的 runner，而且 GitLab 無法追蹤 runner 由誰建立。新流程把建立 runner 的權限交給 GitLab 的角色權限控管，runner 只拿到屬於自己的 token。
 
-棄用時程請參考 [Registering runners](https://docs.gitlab.com/runner/register/) 與 [GitLab token overview](https://docs.gitlab.com/security/tokens/)。GitLab 原本計畫在 18.0 移除 registration token，後來延後，目前文件標示預計在 20.0 移除。
+棄用時程請參考 [Registering runners](https://docs.gitlab.com/runner/register/)，[Migrating to the new runner registration workflow](https://docs.gitlab.com/ci/runners/new_creation_workflow/) 與 [GitLab token overview](https://docs.gitlab.com/security/tokens/)。GitLab 原本計畫在 18.0 移除 registration token，後來決定延後 ([issue 525239](https://gitlab.com/gitlab-org/gitlab/-/issues/525239))，目前文件標示預計在 20.0 移除。
 
 ## 新流程的步驟
 

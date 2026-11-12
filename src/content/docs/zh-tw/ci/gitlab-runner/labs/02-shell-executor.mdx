@@ -84,7 +84,7 @@ import { Steps } from '@astrojs/starlight/components';
 
 ## 驗證
 
-- `id` 的輸出顯示 `uid=` 後面是 `gitlab-runner`，不是 root。
+- `id` 的輸出類似 `uid=999(gitlab-runner)`，括號中是 `gitlab-runner`，不是 root。
 - `pwd` 顯示建置目錄位於 `/home/gitlab-runner/builds/` 下。
 - `read-state` 成功讀到 `left by job` 與 `LAB_INJECTED`。這證明前一個 job 可以影響下一個 job，包括修改 shell 的啟動設定。
 - 在 VM 上執行 `sudo ls /home/gitlab-runner/builds`，可以看到所有專案的原始碼都留在主機上。
@@ -98,6 +98,8 @@ sudo gitlab-runner unregister --name "lab-shell"
 ```
 
 在 GitLab 中刪除 `lab-shell` runner。不再需要時直接刪除整台 VM。
+
+參考: [Install GitLab Runner using the official repositories](https://docs.gitlab.com/runner/install/linux-repository/)，[Shell executor](https://docs.gitlab.com/runner/executors/shell/)。
 
 ## 延伸挑戰
 

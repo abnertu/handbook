@@ -18,7 +18,7 @@ import { Steps } from '@astrojs/starlight/components';
 
 - 以 Helm chart 在 Kubernetes 中安裝 runner，token 存放在 Secret 中。
 - 觀察 job Pod 中的 build，helper 與 service 容器。
-- 說明 Kubernetes executor 與 Docker executor 在 service 連線上的差異。
+- 比較 service 以 DNS 名稱與 `localhost` 連線的差異。
 
 ## 先決條件
 
@@ -73,7 +73,7 @@ import { Steps } from '@astrojs/starlight/components';
    helm install --namespace gitlab-runner gitlab-runner -f values.yaml gitlab/gitlab-runner
    ```
 
-5. 推送下列 pipeline。注意 service 以 `localhost` 連線:
+5. 推送下列 pipeline。同一個 Pod 的容器共用網路，所以 service 也可以用 `localhost` 連線:
 
    ```yaml title=".gitlab-ci.yml"
    k8s-redis:
@@ -113,8 +113,11 @@ kind delete cluster --name runner-lab
 
 在 GitLab 中刪除 `lab-k8s` runner。先在 GitLab 中暫停 runner，等待 job 結束後再執行 `helm uninstall`，可以避免 job 因為 runner 被移除而失敗。
 
+參考: [GitLab Runner Helm chart](https://docs.gitlab.com/runner/install/kubernetes/)，[Kubernetes executor](https://docs.gitlab.com/runner/executors/kubernetes/)。
+
 ## 延伸挑戰
 
 - 把 `memory_limit` 改為 `16Mi`，觀察 job 失敗時 `kubectl describe pod` 顯示的原因。
+- 把 `redis-cli -h localhost` 改成 `redis-cli -h redis`，確認 service 可以用 DNS 名稱連線。
 - 在 kind 中部署 MinIO，設定分散式快取，讓連續兩次執行的 job 可以共用快取。
 - 為 runner 加上 `node_selector`，並在 kind 中建立第二個節點，讓 job Pod 只排程到該節點。

@@ -14,9 +14,9 @@ Kubernetes executor 為每個 job 建立一個 Pod，job 結束後刪除。擴�
 | --- | --- |
 | `build` | 執行 job 的腳本，使用 job 的 `image` |
 | `helper` | clone 原始碼，處理快取與 artifacts |
-| `svc-0`，`svc-1` 或 service 別名 | job 的 `services`，同一個 Pod 中的容器透過 `localhost` 連線 |
+| `svc-0`，`svc-1` 或 service 別名 | job 的 `services`，可以用 DNS 名稱或 `localhost` 連線 |
 
-同一個 Pod 中的容器共用網路，所以 service 要用 `localhost` 加上連接埠連線，而不是 service 名稱。這是從 Docker executor 遷移時最常見的問題。
+同一個 Pod 中的容器共用網路與 `localhost` 位址。目前版本的 service 可以用 DNS 名稱連線，舊版 runner 只能用 `localhost` 加上連接埠。GitLab Runner 17.9 起，符合 DNS label 規則的別名會成為 service 容器名稱，其他 service 命名為 `svc-N`。同一個 Pod 中的 service 不能使用相同的連接埠。
 
 runner 預設使用 `attach` 而不是 `exec` 執行腳本，因此 runner 的 service account 需要 `pods/attach` 權限。舊的 `exec` 方式可以用 `FF_USE_LEGACY_KUBERNETES_EXECUTION_STRATEGY` 啟用，但不建議。
 
@@ -76,7 +76,7 @@ Kubernetes executor 沒有持久的本機快取，每個 Pod 都是全新的環�
 
 - **Pod 一直 pending**: 叢集資源不足或 `node_selector` 沒有符合的節點。用 `kubectl describe pod` 查看事件。
 - **等待 Pod 逾時**: 拉取大型映像檔時超過 `poll_timeout` (預設 180 秒)。調大這個值或預先在節點上快取映像檔。
-- **service 連不上**: 改用 `localhost` 加上連接埠連線。
+- **service 連不上**: 確認 runner 版本支援 DNS 名稱，舊版改用 `localhost` 加上連接埠。兩個 service 使用相同連接埠時，其中一個會無法啟動。
 - **權限錯誤**: 確認 runner 的 Role 包含 `pods/attach` 與 `pods/exec`。
 
 詳細說明請參考 [Kubernetes executor](https://docs.gitlab.com/runner/executors/kubernetes/)。

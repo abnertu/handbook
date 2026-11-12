@@ -8,7 +8,7 @@ sidebar:
 
 ## 啟用指標
 
-runner 內建 Prometheus 指標端點。在 `config.toml` 的全域區段設定 `listen_address`，只寫連接埠時預設為 `9252`:
+runner 內建 Prometheus 指標端點。在 `config.toml` 的全域區段設定 `listen_address`，未指定連接埠時預設為 `9252`:
 
 ```toml title="config.toml"
 concurrent = 4
@@ -31,7 +31,7 @@ curl -s http://127.0.0.1:9252/metrics | grep '^gitlab_runner_'
 | --- | --- |
 | `gitlab_runner_concurrent` | 目前的 `concurrent` 設定值 |
 | `gitlab_runner_limit` | 各 runner 設定的 `limit` 值 |
-| `gitlab_runner_jobs` | 目前正在執行的 job 數，可依 runner 與狀態分組 |
+| `gitlab_runner_jobs_running_total` | 目前正在執行的 job 數，依 runner 分組 |
 | `gitlab_runner_request_concurrency_exceeded_total` | 取 job 請求超過 `request_concurrency` 的次數 |
 | `gitlab_runner_errors_total` | runner 記錄中的錯誤數 |
 | `gitlab_runner_version_info` | runner 版本，可用來追蹤升級進度 |
@@ -76,7 +76,7 @@ sudo gitlab-runner --debug run
 - runner 已經達到 `concurrent` 或 `limit` 上限。
 - runner 是 `offline`: 檢查服務是否在執行，以及主機能否連到 GitLab。
 
-### Permission denied: /var/run/docker.sock
+### Permission denied: `/var/run/docker.sock`
 
 - 確認 `gitlab-runner` 使用者在 `docker` 群組中，或改用 rootless Docker 或 Podman 的 socket。
 - 在啟用 SELinux 的系統上，檢查 audit 記錄中是否有拒絕紀錄，必要時在掛載參數加上 `:Z`。
