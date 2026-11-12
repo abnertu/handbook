@@ -1,0 +1,55 @@
+---
+title: GitLab Runner 與 Executor
+description: 從架構，註冊，executor 選擇到安全與擴展，系統化學會 GitLab Runner，並透過實作練習達到可以獨立設計 runner 架構的程度。
+sidebar:
+  label: 概觀
+  order: 0
+---
+
+import { CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+GitLab Runner 是執行 GitLab CI/CD job 的程式。GitLab 負責排程 pipeline，runner 負責取得 job，準備執行環境並回報結果。executor 決定 job 在哪一種環境中執行，例如主機的 shell，Docker 容器或 Kubernetes pod。
+
+## 適用版本
+
+本手冊依 **GitLab 19.5** 與 **GitLab Runner 19.5** 撰寫，最後核對日期為 2026-11-12。GitLab Runner 每月第三個星期四發布新的 minor 版本，runner 的 major.minor 版本應與 GitLab 一致。
+
+:::caution[版本差異]
+token 流程，executor 狀態與預設值會隨版本改變。內容與你的環境不符時，以頁面中連結的官方文件為準。
+:::
+
+## 學習路徑
+
+1. 先讀 **概念**，理解 runner，runner manager，executor 與 job 之間的關係。
+2. 依 **操作指南** 安裝與註冊第一個 runner，再學習擴展，快取，安全與監控。
+3. 讀 **Executor** 章節，比較各種 executor 並選出適合的組合。
+4. 需要查詢設定或指令時使用 **參考**。
+5. 依序完成 **實作練習**，每個練習都包含驗證，清理與延伸挑戰。
+
+<CardGrid>
+	<LinkCard title="架構與 job 生命週期" description="runner 如何取得 job 並在 executor 中執行。" href="/handbook/zh-tw/ci/gitlab-runner/concepts/architecture/" />
+	<LinkCard title="選擇 executor" description="比較 shell，Docker，Kubernetes 與自動擴展 executor。" href="/handbook/zh-tw/ci/gitlab-runner/executors/" />
+	<LinkCard title="安裝與註冊" description="以 runner authentication token 註冊第一個 runner。" href="/handbook/zh-tw/ci/gitlab-runner/guides/install-register/" />
+	<LinkCard title="實作練習" description="從註冊容器 runner 到 Kubernetes executor 的完整練習。" href="/handbook/zh-tw/ci/gitlab-runner/labs/01-register-runner/" />
+</CardGrid>
+
+## 本手冊不涵蓋
+
+- `.gitlab-ci.yml` 的完整語法。本手冊只說明與 runner 直接相關的關鍵字，例如 `tags`，`image`，`services` 與 `cache`。
+- GitLab 伺服器本身的安裝與維運。
+- GitLab.com 提供的 hosted runners 的內部實作。
+
+## 參考來源
+
+本手冊的事實以 GitLab 官方文件為準，各頁面在相關段落直接連到對應的官方頁面。主要來源如下:
+
+- [GitLab Runner 官方文件](https://docs.gitlab.com/runner/)
+- [Registering runners](https://docs.gitlab.com/runner/register/)
+- [Executors](https://docs.gitlab.com/runner/executors/)
+- [Advanced configuration](https://docs.gitlab.com/runner/configuration/advanced-configuration/)
+- [Runner security](https://docs.gitlab.com/runner/security/)
+- [Monitoring GitLab Runner](https://docs.gitlab.com/runner/monitoring/)
+- [Caching in GitLab CI/CD](https://docs.gitlab.com/ci/caching/)
+- [Use Docker to build Docker images](https://docs.gitlab.com/ci/docker/using_docker_build/)
+- [GitLab Runner release 與支援週期 (endoflife.date)](https://endoflife.date/gitlab-runner)
+- 社群經驗: GitLab Forum 與 GitLab issue tracker 中常見的問題與解法，已整理進疑難排解與安全章節。
