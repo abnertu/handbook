@@ -106,12 +106,14 @@ import { Steps } from '@astrojs/starlight/components';
 
 ## 清理
 
+先在 GitLab 中暫停 `lab-k8s` runner，等待正在執行的 job 結束，再執行下列指令。這可以避免 job 因為 runner 被移除而失敗。
+
 ```sh
 helm uninstall gitlab-runner -n gitlab-runner
 kind delete cluster --name runner-lab
 ```
 
-在 GitLab 中刪除 `lab-k8s` runner。先在 GitLab 中暫停 runner，等待 job 結束後再執行 `helm uninstall`，可以避免 job 因為 runner 被移除而失敗。
+最後在 GitLab 中刪除 `lab-k8s` runner。
 
 參考: [GitLab Runner Helm chart](https://docs.gitlab.com/runner/install/kubernetes/)，[Kubernetes executor](https://docs.gitlab.com/runner/executors/kubernetes/)。
 

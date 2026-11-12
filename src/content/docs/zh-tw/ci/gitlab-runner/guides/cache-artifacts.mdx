@@ -30,7 +30,12 @@ cache 與 artifacts 都會把檔案保存到 job 之外，但用途與存放位�
 
 Docker executor 預設為每個 runner 建立快取 volume，名稱包含 runner ID 的雜湊值。同一台主機上的不同 runner 設定不會共用快取 volume。
 
-快取以 `cache:key` 區分，GitLab 預設會再加上 `-protected` 或 `-non_protected` 後綴。只有在受保護的分支或 tag 上，而且由 Maintainer 或 Owner 觸發的 pipeline 才使用 `-protected` 快取，其他 pipeline 都使用 `-non_protected`。這可以避免未受信任的 job 汙染受保護的快取，但也代表 Developer 在 `main` 上觸發的 pipeline 讀不到 Maintainer 建立的快取。請參考 [Caching in GitLab CI/CD](https://docs.gitlab.com/ci/caching/)。
+快取以 `cache:key` 區分，GitLab 預設會再加上 `-protected` 或 `-non_protected` 後綴。pipeline 符合下列任一條件時使用 `-protected` 快取，其他 pipeline 使用 `-non_protected`:
+
+- 在受保護的分支或 tag 上執行，而且觸發者有權限合併到該分支或建立該 tag。
+- 由 Maintainer 或 Owner 觸發，即使在未受保護的分支上。
+
+這可以避免未受信任的 job 汙染受保護的快取。要注意 Maintainer 在功能分支上觸發的 pipeline 也會寫入 `-protected` 快取。請參考 [Caching in GitLab CI/CD](https://docs.gitlab.com/ci/caching/)。
 
 ```yaml title=".gitlab-ci.yml"
 test:
