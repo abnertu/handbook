@@ -35,7 +35,7 @@ concurrent = 6
 
 - `concurrent` 小於所有 `limit` 的總和時，各 runner 設定會互相競爭 `concurrent` 的名額。
 - `request_concurrency` 大於 `1` 可以讓 job 較多時更快取得新 job，但會增加對 GitLab 的請求量。job 很多卻一直 pending 時，可以觀察 `gitlab_runner_request_concurrency_exceeded_total` 指標再調整。
-- 修改 `config.toml` 後 runner 會自動重新載入設定，不需要重新啟動服務。只有 `listen_address` 需要重新啟動。
+- 修改 `config.toml` 後 runner 會自動重新載入設定，不需要重新啟動服務。全域的 `listen_address` 與 `[session_server]` 區段例外，修改後需要重新啟動。
 
 設定的完整說明請參考 [Advanced configuration](https://docs.gitlab.com/runner/configuration/advanced-configuration/)。
 

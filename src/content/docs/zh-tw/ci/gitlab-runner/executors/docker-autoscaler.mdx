@@ -30,7 +30,8 @@ runner manager (一台小型常駐主機)
 | 項目 | Docker Autoscaler | Instance |
 | --- | --- | --- |
 | job 執行位置 | 機器上的 Docker 容器 | 直接在機器上執行 |
-| `image` 與 `services` | 支援，等同 Docker executor | 不支援 |
+| `image` | 支援，等同 Docker executor | 只在使用 nesting (Apple Silicon 上的巢狀虛擬化) 時支援，用來選擇 VM 映像 |
+| `services` | 支援 | 不支援 |
 | 機器映像需求 | 安裝 Docker | 安裝 `git` 與 `gitlab-runner` |
 | 適用情境 | 一般容器化 job | 需要完整作業系統，例如 macOS 建置或存取裝置 |
 

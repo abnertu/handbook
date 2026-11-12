@@ -6,7 +6,7 @@ sidebar:
   order: 1
 ---
 
-`config.toml` 是 runner manager 唯一的設定檔。以 root 執行時位於 `/etc/gitlab-runner/config.toml`，以一般使用者執行時位於 `~/.gitlab-runner/config.toml`，容器中位於 `/etc/gitlab-runner/config.toml`。修改後 runner 會自動重新載入，`listen_address` 除外。
+`config.toml` 是 runner manager 唯一的設定檔。以 root 執行時位於 `/etc/gitlab-runner/config.toml`，以一般使用者執行時位於 `~/.gitlab-runner/config.toml`，容器中位於 `/etc/gitlab-runner/config.toml`。修改後 runner 會自動重新載入，全域的 `listen_address` 與 `[session_server]` 區段除外，修改這兩者後要執行 `gitlab-runner restart`。
 
 本頁列出最常用的欄位。完整欄位與最新預設值以 [Advanced configuration](https://docs.gitlab.com/runner/configuration/advanced-configuration/) 為準。
 
@@ -56,7 +56,7 @@ shutdown_timeout = 30
 
 ## [session_server]
 
-讓使用者從 GitLab UI 開啟 job 的互動式 web terminal。`listen_address` 是 runner 監聽的位址，`advertise_address` 是 GitLab 用來連線的位址，未設定時使用 `listen_address`。`session_timeout` 預設 `1800` 秒。
+讓使用者從 GitLab UI 開啟 job 的互動式 web terminal。`listen_address` 是 runner 監聽的位址，`advertise_address` 是 GitLab 用來連線的位址，未設定時使用 `listen_address`。`session_timeout` 預設 `1800` 秒。修改這個區段後需要重新啟動 runner。
 
 ## [[runners]]
 

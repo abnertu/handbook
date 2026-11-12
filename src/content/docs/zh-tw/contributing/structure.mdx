@@ -100,6 +100,6 @@ sidebar: [
 
 3. 側邊欄的 `label` 加上 `translations` 欄位，提供各語言的群組名稱。
 
-4. 為新語言另訂撰寫規範。本站的標點與空格規則只適用於繁體中文，`npm run lint:prose` 只檢查 `zh-tw/` 與 `zh-TW.json`。
+4. 為新語言另訂撰寫規範。本站的標點與空格規則只適用於繁體中文，`npm run lint:prose` 檢查 `src/content/docs/zh-tw/`，`src/content/docs/404.md`，`src/content/i18n/zh-TW.json` 與 `astro.config.mjs` 中含有中日韓文字的字串。新語言在 `astro.config.mjs` 加入的 CJK 標籤也會被檢查，需要時為新語言調整 `scripts/lint-prose.mjs` 的規則或排除範圍。
 
 </Steps>

@@ -33,7 +33,7 @@ GitLab 目前持續開發的 executor 只有四個: Docker，Docker Autoscaler�
 | 每個 job 的乾淨環境 | 否 | 是 | 是 | 可設定 | 是 |
 | job 之間的隔離 | 無 | 容器 | 容器或 VM | VM | Pod |
 | 自動擴展 | 否 | 否 | 是 | 是 | 是 |
-| job 可以指定 `image` | 否 | 是 | 是 | 否 | 是 |
+| job 可以指定 `image` | 否 | 是 | 是 | 只在 nesting 時選擇 VM 映像 | 是 |
 | `services` | 否 | 是 | 是 | 否 | 是 |
 | 需要 Docker 或容器執行環境 | 否 | 是 | VM 上需要 | 否 | 叢集提供 |
 | 存取主機硬體或作業系統 | 完整 | 有限 | 有限 | 完整 | 有限 |
