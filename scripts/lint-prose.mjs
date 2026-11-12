@@ -11,7 +11,7 @@ const isAlnum = (ch) => ch !== undefined && /[A-Za-z0-9]/.test(ch);
 // Full-width marks that may stay full-width.
 const FW_ALLOWED = '，。';
 // Characters that must not appear in prose.
-const FORBIDDEN = /[（）：；！？「」『』、【】〔〕～“”‘’…—–\uff01-\uff0b\uff0d-\uff5e]/g;
+const FORBIDDEN = /[（）：；！？「」『』《》〈〉、【】〔〕～“”‘’…⋯—–\u3000\uff01-\uff0b\uff0d-\uff5e]/g;
 // Half-width symbols that need a space when they touch a CJK character.
 const SPACED_SYMBOLS = '-+=&@$#\\\\<>%';
 // Neutral placeholder for removed HTML/JSX tags.
@@ -46,6 +46,7 @@ export function lintProse(raw) {
 	const chars = [...t];
 	let quoteOpen = false;
 	let boldOpen = false;
+	const emOpen = { '*': false, _: false };
 	for (let i = 0; i < chars.length; i++) {
 		const c = chars[i];
 		const prev = chars[i - 1];
@@ -58,9 +59,21 @@ export function lintProse(raw) {
 			// "**" works like a bracket pair: space outside, none inside.
 			const after = chars[i + 2];
 			if (!boldOpen && isCjk(prev)) errors.push('missing space before "**"');
+			if (!boldOpen && after === ' ') errors.push('space inside "**"');
 			if (boldOpen && isCjk(after)) errors.push('missing space after "**"');
+			if (boldOpen && prev === ' ') errors.push('space inside "**"');
 			boldOpen = !boldOpen;
 			i++;
+			continue;
+		}
+		if ((c === '*' || c === '_') && !(isAlnum(prev) && isAlnum(next))) {
+			// Single emphasis markers also take spaces outside only. Intraword "_" is not a marker.
+			const open = emOpen[c];
+			if (!open && isCjk(prev)) errors.push(`missing space before "${c}"`);
+			if (!open && next === ' ') errors.push(`space inside "${c}"`);
+			if (open && isCjk(next)) errors.push(`missing space after "${c}"`);
+			if (open && prev === ' ') errors.push(`space inside "${c}"`);
+			emOpen[c] = !open;
 			continue;
 		}
 		if (c === '(' || c === '[') {
@@ -71,13 +84,19 @@ export function lintProse(raw) {
 			if (prev === ' ') errors.push(`space inside "${c}"`);
 		} else if (c === '"') {
 			if (!quoteOpen && isCjk(prev)) errors.push('missing space before opening quote');
+			if (!quoteOpen && next === ' ') errors.push('space inside quotes');
 			if (quoteOpen && isCjk(next)) errors.push('missing space after closing quote');
+			if (quoteOpen && prev === ' ') errors.push('space inside quotes');
 			quoteOpen = !quoteOpen;
 		} else if (':;?!'.includes(c)) {
 			if (prev === ' ' && isCjk(chars[i - 2])) errors.push(`space before "${c}"`);
-			if (isCjk(next)) errors.push(`missing space after "${c}"`);
+			if (isCjk(next) || (isCjk(prev) && isAlnum(next))) errors.push(`missing space after "${c}"`);
+		} else if (c === '/') {
+			if (prev === ' ' && next === ' ') errors.push('space around "/"');
 		} else if (c === ',' || c === '.') {
 			if (isCjk(prev)) errors.push(`half-width "${c}" after CJK; use "${c === ',' ? '，' : '。'}"`);
+		} else if (c === '%' && prev === ' ' && /[0-9]/.test(chars[i - 2] ?? '')) {
+			errors.push('space between number and "%"');
 		} else if (SPACED_SYMBOLS.includes(c)) {
 			if (isCjk(prev) || isCjk(next)) errors.push(`missing space between CJK and "${c}"`);
 		} else if (FW_ALLOWED.includes(c)) {
@@ -153,7 +172,7 @@ export function lintMarkdown(text) {
 			body = body.slice(end + 3);
 			inComment = false;
 		}
-		body = body.replace(/<!--.*?-->/g, '');
+		body = body.replace(/<!--.*?-->/g, '').replace(/\{\/\*.*?\*\/\}/g, '');
 		if (body.includes('<!--')) {
 			body = body.slice(0, body.indexOf('<!--'));
 			inComment = true;
@@ -180,7 +199,8 @@ export function lintMarkdown(text) {
 		if (prevProse !== null && !isBlockStart(body) && isWide(lastChar(prevProse)) && isWide(firstChar(body))) {
 			report('paragraph continues on a new line; keep each paragraph on one line');
 		}
-		prevProse = /^\s*\|/.test(body) ? null : body;
+		// Table rows and headings end a paragraph.
+		prevProse = /^\s*(\||#)/.test(body) ? null : body;
 	}
 	return out;
 }

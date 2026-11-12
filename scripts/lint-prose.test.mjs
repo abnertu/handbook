@@ -12,7 +12,7 @@ test('clean fixture with every skipped construct passes', () => {
 });
 
 test('forbidden full-width punctuation', () => {
-	for (const s of ['使用（容器）。', '注意：這裡。', '真的！', '為什麼？', '設定「值」。', '甲、乙。', '分號；後面。']) {
+	for (const s of ['使用（容器）。', '注意：這裡。', '真的！', '為什麼？', '設定「值」。', '甲、乙。', '分號；後面。', '參考《手冊》。', '全形\u3000空格。', '等等⋯']) {
 		assert.notDeepEqual(lintProse(s), [], s);
 	}
 });
@@ -44,13 +44,17 @@ test('quotes take spaces outside only', () => {
 	flags('設定 "concurrent"的值。');
 	passes('設定 "concurrent"，"limit" 兩個值。');
 	passes('稱為 "中文" 的值。');
+	flags('設定 " concurrent " 的值。');
 });
 
 test('colon, question and exclamation marks attach left and space right', () => {
 	flags('注意:這一步。');
 	flags('注意 : 這一步。');
 	flags('為什麼 ? 因為。');
+	flags('注意:Docker 需要 root。');
+	flags('問題?Docker 才能執行。');
 	passes('注意: 這一步。為什麼? 因為。');
+	passes('時間是 10:30，網址 https://x.y/a?b=1。');
 });
 
 test('half-width comma or period after CJK', () => {
@@ -69,6 +73,10 @@ test('markup counts as half-width: links, bold and inline code', () => {
 	flags('請參考 [官方文件](https://docs.gitlab.com/)的說明。');
 	flags('這是**重點** 文字。');
 	flags('這是 **重點**文字。');
+	flags('這是 ** 重點 ** 文字。');
+	flags('這是_重點_文字。');
+	flags('這是*重點*文字。');
+	passes('這是 _重點_ 文字，變數 foo_bar 不受影響。');
 	flags('設定`concurrent` 為 4。');
 	flags('設定 `concurrent`為 4。');
 	passes('這是 **重點** 文字，設定 `concurrent` 為 4，請參考 [文件](https://x.y/)。');
@@ -78,6 +86,8 @@ test('percent and other symbols need spaces from CJK', () => {
 	flags('使用率 80%時清理。');
 	flags('版本 A+B之後。');
 	passes('使用率 80% 時清理，shell/docker 都可以。');
+	flags('shell / docker executor 都支援。');
+	flags('使用率 80 % 時清理。');
 });
 
 test('headings, list items, table cells and blockquotes are linted', () => {
@@ -94,6 +104,7 @@ test('soft-wrapped CJK paragraph lines are reported', () => {
 	passes('第一段。\n\n第二段。');
 	passes('- 第一項\n- 第二項');
 	passes('English line\ncontinues here.');
+	passes('## 標題\n第一段。');
 });
 
 test('frontmatter values are linted', () => {
