@@ -105,7 +105,7 @@ import { Steps } from '@astrojs/starlight/components';
 ## 驗證
 
 - 專案的 **Deploy** > **Container registry** 中有 `dind-` 與 `buildah-` 開頭的兩個 tag。
-- 在任何主機上執行 `docker run --rm <registry>/<project>:buildah-<sha>`，輸出 `built in CI`。
+- 練習專案預設為私有，先用具有 `read_registry` scope 的 personal access token 執行 `docker login registry.gitlab.com`，再執行 `docker run --rm <registry>/<project>:buildah-<sha>`，輸出 `built in CI`。
 - `socket-escape` 的輸出是 runner 主機的主機名稱，不是容器的主機名稱。這證明掛載 socket 的 job 可以讀取主機的任何檔案。
 
 ## 清理

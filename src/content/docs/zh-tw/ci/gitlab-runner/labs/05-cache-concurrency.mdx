@@ -81,7 +81,7 @@ import { Steps } from '@astrojs/starlight/components';
 ## 清理
 
 - 把 `concurrent` 與 `limit` 改回原本的值。
-- 刪除快取 volume，或在 GitLab 的 **Build** > **Pipelines** 頁面選擇 **Clear runner caches**。
+- 用 `docker volume rm` 刪除步驟 3 列出的快取 volume。GitLab 的 **Build** > **Pipelines** 頁面中的 **Clear runner caches** 只會讓舊快取失效，不會刪除 runner 主機上的 volume。
 
 參考: [Caching in GitLab CI/CD](https://docs.gitlab.com/ci/caching/)，[Advanced configuration](https://docs.gitlab.com/runner/configuration/advanced-configuration/)。
 

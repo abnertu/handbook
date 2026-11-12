@@ -23,7 +23,7 @@ import { Steps } from '@astrojs/starlight/components';
 ## 先決條件
 
 - 一個 GitLab.com 帳號，以及一個你有 Maintainer 角色的空專案，以下稱為練習專案。
-- 一台安裝 Docker Engine 的 Linux 主機或 VM，可以連到 `https://gitlab.com`。
+- 一台安裝 Docker Engine，可以拋棄的 Linux VM，可以連到 `https://gitlab.com`。練習 6 會在同一個 runner 容器中建立 privileged runner，不要使用想保留的主機。
 - 基本的 `git` 操作。
 
 ## 步驟
@@ -81,7 +81,7 @@ import { Steps } from '@astrojs/starlight/components';
 ## 驗證
 
 - GitLab 的 **Settings** > **CI/CD** > **Runners** 中，`lab-docker` 顯示為 `online`。
-- `docker exec gitlab-runner gitlab-runner verify` 顯示 runner 的狀態為 alive。
+- `docker exec gitlab-runner gitlab-runner verify` 顯示 `Verifying runner... is valid`。
 - `hello` job 成功，job log 開頭顯示 `Running with gitlab-runner 19.5` 與 `on lab-docker`，輸出中的 `/etc/os-release` 是 Alpine Linux。
 - `hostname` 每次執行都不同，因為每個 job 都使用新的容器。
 
