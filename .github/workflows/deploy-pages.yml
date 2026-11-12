@@ -1,0 +1,47 @@
+name: Deploy Pages
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    uses: ./.github/workflows/validate.yml
+
+  build:
+    name: Build Pages Artifact
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Out Repository
+        uses: actions/checkout@v7
+
+      - name: Build And Upload Site
+        uses: withastro/action@v6
+        with:
+          # Keep in sync with .nvmrc.
+          node-version: 24
+
+  deploy:
+    name: Deploy To GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy Site
+        id: deployment
+        uses: actions/deploy-pages@v5
