@@ -64,14 +64,7 @@ test:
 
 Docker executor 可以透過 Podman 的 Docker 相容 API 執行，不需要安裝 Docker daemon。需要 Podman 4.2.0 以上版本，使用 services 時必須啟用 `FF_NETWORK_PER_BUILD`。
 
-以 `gitlab-runner` 使用者啟用 rootless Podman socket:
-
-```sh
-sudo loginctl enable-linger gitlab-runner
-sudo -iu gitlab-runner systemctl --user --now enable podman.socket
-```
-
-在 `config.toml` 中把 `host` 指向這個 socket，路徑中的數字是 `gitlab-runner` 使用者的 UID，可以用 `id -u gitlab-runner` 查詢:
+在 `config.toml` 中把 `host` 指向 rootless Podman socket，路徑中的數字是執行 Podman 的使用者的 UID:
 
 ```toml title="config.toml"
 [[runners]]
@@ -84,7 +77,7 @@ sudo -iu gitlab-runner systemctl --user --now enable podman.socket
     FF_NETWORK_PER_BUILD = true
 ```
 
-rootless Podman 讓 job 容器即使逃脫，也只能取得 `gitlab-runner` 使用者的權限。
+rootless Podman 讓 job 容器即使逃脫，也只能取得執行 Podman 的使用者的權限。完整的部署步驟請參考 [以 rootless Podman 部署 runner](/handbook/zh-tw/ci/gitlab-runner/guides/rootless-podman/)。
 
 ## 常用設定
 

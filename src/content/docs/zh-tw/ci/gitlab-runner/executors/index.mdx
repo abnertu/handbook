@@ -45,7 +45,7 @@ GitLab 目前持續開發的 executor 只有四個: Docker，Docker Autoscaler�
    - 已經有 Kubernetes 叢集: 使用 **Kubernetes executor**。
    - 在 AWS，Google Cloud 或 Azure 上，job 需要容器: 使用 **Docker Autoscaler**。
    - 在雲端上，job 需要完整的作業系統，例如 macOS 建置: 使用 **Instance executor**。
-2. 不需要自動擴展，job 在容器中執行: 使用 **Docker executor**，也可以搭配 Podman。
+2. 不需要自動擴展，job 在容器中執行: 使用 **Docker executor**，也可以搭配 [rootless Podman](/handbook/zh-tw/ci/gitlab-runner/guides/rootless-podman/)。
 3. job 必須直接使用主機，例如操作實體裝置或特定軟體授權: 使用 **shell executor**，並把 runner 限制在可信任的專案。
 
 :::tip[從 Docker Machine 遷移]
