@@ -1,0 +1,370 @@
+---
+title: 以 rootless Podman 部署 runner
+description: 為每個 runner 建立專用帳號，以 user systemd unit 執行 manager 容器，並讓 Docker executor 透過 rootless Podman socket 執行 job。
+sidebar:
+  label: Rootless Podman
+  order: 6
+---
+
+本指南在一台 Linux 主機上部署一個不需要 Docker daemon 與 root 權限的 runner。完成後 runner 會出現在 GitLab 中，job 在專用帳號的 rootless Podman 中執行。
+
+## 架構
+
+| 元件 | 位置 | 用途 |
+| --- | --- | --- |
+| 專用帳號 | 主機，例如 `gitlab-runner-frontend` | 擁有這個 runner 的設定，映像檔，容器與快取 |
+| `podman.socket` | 專用帳號的 user systemd | 提供 Docker 相容 API |
+| manager 容器 | 專用帳號的 user systemd unit | 執行 `gitlab-runner run`，向 GitLab 取得 job |
+| job 容器 | 專用帳號的 rootless Podman | manager 透過 socket 建立的 helper，build 與 service 容器 |
+
+- 每個 runner 使用一個帳號，並設定 `concurrent = 1`。不同環境的 job 不共用映像檔，volume 與 socket。
+- 只有 manager 容器掛載 Podman socket。不要用 `volumes` 把 socket 掛載到 job 容器，socket 可以控制這個帳號的所有容器。
+- job 容器即使逃脫，也只能取得專用帳號的權限。
+
+## 先決條件
+
+| 項目 | 需求 | 檢查方式 |
+| --- | --- | --- |
+| Podman | 4.2.0 以上 | `podman --version` |
+| 網路後端 | netavark | 第 4 步的 `podman info` |
+| cgroup manager | systemd | 第 4 步的 `podman info` |
+| aardvark-dns | 高於 1.10.0 | `/usr/libexec/podman/aardvark-dns --version`，部分發行版位於 `/usr/lib/podman/` |
+| cgroup | v2 | `stat -fc %T /sys/fs/cgroup` 輸出 `cgroup2fs` |
+| systemd | 支援 user manager 與 linger | `loginctl --version` |
+| GitLab | 已建立帶有 `podman` tag 的 runner 並取得 `glrt-` token | 請參考 [安裝與註冊 runner](/handbook/zh-tw/ci/gitlab-runner/guides/install-register/) |
+
+- rootless Podman 只在 cgroup v2 搭配 systemd cgroup manager 時套用 `cpus` 與 `memory` 限制。在 cgroup v1 主機上，job 不受資源限制。
+- aardvark-dns 1.10.0 以下會造成偶發的 DNS 失敗。
+- service 需要網路別名時，官方文件要求安裝 `podman-plugins` 套件。
+
+版本需求與限制請參考 [Use Podman to run Docker commands](https://docs.gitlab.com/runner/executors/docker/#use-podman-to-run-docker-commands)。
+
+## 部署步驟
+
+### 1. 設定變數與輔助函式
+
+在同一個 shell 中執行部署與驗證的所有指令。UID 與 subordinate ID 範圍不可以與主機上其他帳號重疊。
+
+```sh
+RUNNER_USER=gitlab-runner-frontend
+RUNNER_UID=1001
+RUNNER_HOME="/home/$RUNNER_USER"
+SUBID_START=165536
+SUBID_END=$((SUBID_START + 65535))
+
+as_runner() {
+  (cd / && sudo runuser --user "$RUNNER_USER" -- env \
+    HOME="$RUNNER_HOME" \
+    XDG_RUNTIME_DIR="/run/user/$RUNNER_UID" \
+    DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$RUNNER_UID/bus" \
+    "$@")
+}
+
+put_file() {
+  as_runner sh -c 'umask 077 && cat > "$1"' sh "$2" < "$1"
+}
+```
+
+`as_runner` 從 `/` 執行指令，因為專用帳號可能無法讀取目前的目錄。`put_file` 以專用帳號寫入權限為 `600` 的檔案。
+
+### 2. 建立專用帳號
+
+```sh
+sudo useradd --create-home --home-dir "$RUNNER_HOME" --shell /bin/bash --uid "$RUNNER_UID" --user-group "$RUNNER_USER"
+sudo usermod --lock "$RUNNER_USER"
+sudo passwd --status "$RUNNER_USER"
+```
+
+`passwd --status` 輸出的第二欄必須是 `L` 或 `LK`，代表密碼已鎖定。
+
+### 3. 分配 subordinate ID
+
+先檢查 `useradd` 是否已經自動分配:
+
+```sh
+grep -E "^($RUNNER_USER|$RUNNER_UID):" /etc/subuid /etc/subgid
+```
+
+沒有輸出時，分配 65536 個 ID。已經有輸出時，跳過下列指令，並在移除 runner 時使用輸出中的範圍。
+
+```sh
+sudo usermod --add-subuids "$SUBID_START-$SUBID_END" --add-subgids "$SUBID_START-$SUBID_END" "$RUNNER_USER"
+```
+
+### 4. 啟動 user manager
+
+啟用 linger，讓服務在帳號沒有登入時繼續執行:
+
+```sh
+sudo loginctl enable-linger "$RUNNER_USER"
+sudo systemctl start "user@$RUNNER_UID.service"
+as_runner podman info --format '{{.Host.Security.Rootless}} {{.Host.NetworkBackend}} {{.Host.CgroupManager}}'
+```
+
+```text
+true netavark systemd
+```
+
+### 5. 啟用 Podman socket 並建立目錄
+
+```sh
+as_runner systemctl --user enable --now podman.socket
+as_runner install -d -m 700 \
+  "$RUNNER_HOME/gitlab-runner" \
+  "$RUNNER_HOME/gitlab-runner/config" \
+  "$RUNNER_HOME/gitlab-runner/cache" \
+  "$RUNNER_HOME/.config" \
+  "$RUNNER_HOME/.config/systemd" \
+  "$RUNNER_HOME/.config/systemd/user"
+```
+
+### 6. 撰寫 runner 設定
+
+在目前的目錄建立下列兩個檔案。
+
+```toml title="config.toml"
+concurrent = 1
+check_interval = 3
+shutdown_timeout = 30
+```
+
+```toml title="registration-template.toml"
+[[runners]]
+  name = "frontend-podman"
+  executor = "docker"
+
+  [runners.feature_flags]
+    FF_NETWORK_PER_BUILD = true
+
+  [runners.docker]
+    host = "unix:///run/podman/podman.sock"
+    image = "docker.io/library/node:22.22.0-bookworm"
+    privileged = false
+    cpus = "2"
+    memory = "4g"
+    shm_size = 1073741824
+    pull_policy = "if-not-present"
+    volumes = ["/cache"]
+    allowed_images = ["docker.io/library/node:*"]
+    allowed_services = ["docker.io/library/postgres:*"]
+```
+
+- `host` 是 manager 容器內的 socket 路徑，下一步的 unit 會把主機的 socket 掛載到這裡。
+- `FF_NETWORK_PER_BUILD` 為每個 job 建立獨立網路。Podman 不支援 Docker container links，使用 services 時必須啟用。設定方式請參考 [GitLab Runner feature flags](https://docs.gitlab.com/runner/configuration/feature-flags/)。
+- `allowed_images` 與 `allowed_services` 限制 job 可以使用的映像檔。job 的 `image` 與 `services` 要寫成與清單相同的完整名稱。
+
+把檔案寫入專用帳號的設定目錄:
+
+```sh
+put_file config.toml "$RUNNER_HOME/gitlab-runner/config/config.toml"
+put_file registration-template.toml "$RUNNER_HOME/gitlab-runner/config/registration-template.toml"
+```
+
+### 7. 建立 manager 服務
+
+建立下列 unit 檔案。其中的 `1001` 與 `gitlab-runner-frontend` 要與第 1 步的變數相同。`/usr/bin/podman` 要與 `command -v podman` 的輸出相同。
+
+```ini title="gitlab-runner-frontend.service"
+[Unit]
+Description=GitLab Runner manager for gitlab-runner-frontend
+Wants=network-online.target
+After=network-online.target podman.socket
+Requires=podman.socket
+
+[Service]
+Type=simple
+Environment=XDG_RUNTIME_DIR=/run/user/1001
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1001/bus
+ExecStartPre=-/usr/bin/podman rm --force gitlab-runner-frontend
+ExecStart=/usr/bin/podman run \
+  --rm \
+  --name gitlab-runner-frontend \
+  --network host \
+  --image-volume=ignore \
+  --security-opt label=disable \
+  --stop-signal SIGQUIT \
+  --volume /home/gitlab-runner-frontend/gitlab-runner/config:/etc/gitlab-runner:rw \
+  --volume /home/gitlab-runner-frontend/gitlab-runner/cache:/cache:rw \
+  --volume /run/user/1001/podman/podman.sock:/run/podman/podman.sock:rw \
+  --env DOCKER_HOST=unix:///run/podman/podman.sock \
+  docker.io/gitlab/gitlab-runner:v19.5.3 \
+  run \
+  --user=gitlab-runner \
+  --working-directory=/home/gitlab-runner
+ExecStop=-/usr/bin/podman stop --time 30 gitlab-runner-frontend
+ExecStopPost=-/usr/bin/podman rm --force gitlab-runner-frontend
+Restart=always
+RestartSec=5
+TimeoutStartSec=120
+TimeoutStopSec=45
+Delegate=yes
+
+[Install]
+WantedBy=default.target
+```
+
+把映像檔 tag 換成與 GitLab 相同的版本。先拉取映像檔，再啟動服務:
+
+```sh
+as_runner podman pull docker.io/gitlab/gitlab-runner:v19.5.3
+put_file "$RUNNER_USER.service" "$RUNNER_HOME/.config/systemd/user/$RUNNER_USER.service"
+as_runner systemctl --user daemon-reload
+as_runner systemctl --user enable --now "$RUNNER_USER.service"
+as_runner systemctl --user is-active "$RUNNER_USER.service"
+```
+
+```text
+active
+```
+
+:::caution[停止服務會中斷長時間的 job]
+`SIGQUIT` 讓 runner 停止接收新的 job，並等待執行中的 job 結束。`podman stop --time 30` 在 30 秒後強制結束容器，所以停止服務前要先確認沒有執行中的 job。訊號的行為請參考 [GitLab Runner commands](https://docs.gitlab.com/runner/commands/#signals)。
+:::
+
+### 8. 註冊 runner
+
+這一步只執行一次。重複註冊會在 `config.toml` 新增另一個 `[[runners]]` 區段。
+
+先單獨執行下列指令並輸入 token。`read -rs` 讓 token 不會留在 shell 歷史記錄:
+
+```sh
+read -rs CI_SERVER_TOKEN && export CI_SERVER_TOKEN
+```
+
+在 manager 容器內註冊。`podman exec --env` 只傳遞變數名稱，token 不會出現在指令參數中。`--name` 要與範本的 `name` 相同，因為 `register` 預設使用容器的主機名稱。
+
+```sh
+export CI_SERVER_URL="https://gitlab.example.com"
+export REGISTER_NON_INTERACTIVE=true
+
+(cd / && sudo --preserve-env=CI_SERVER_URL,CI_SERVER_TOKEN,REGISTER_NON_INTERACTIVE \
+  runuser --preserve-environment --user "$RUNNER_USER" -- env \
+  HOME="$RUNNER_HOME" \
+  XDG_RUNTIME_DIR="/run/user/$RUNNER_UID" \
+  DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$RUNNER_UID/bus" \
+  podman exec \
+  --env CI_SERVER_URL \
+  --env CI_SERVER_TOKEN \
+  --env REGISTER_NON_INTERACTIVE \
+  "$RUNNER_USER" \
+  gitlab-runner register --name frontend-podman --template-config /etc/gitlab-runner/registration-template.toml)
+
+unset CI_SERVER_TOKEN
+```
+
+範本的合併規則請參考 [Register with a configuration template](https://docs.gitlab.com/runner/register/#register-with-a-configuration-template)。
+
+## 驗證
+
+確認 runner 可以連到 GitLab，設定中只有一個 runner，而且 feature flag 已經寫入設定:
+
+```sh
+as_runner podman exec "$RUNNER_USER" gitlab-runner verify
+as_runner grep -c '^\[\[runners\]\]' "$RUNNER_HOME/gitlab-runner/config/config.toml"
+as_runner grep -c 'FF_NETWORK_PER_BUILD = true' "$RUNNER_HOME/gitlab-runner/config/config.toml"
+```
+
+- `verify` 的輸出要包含 `is valid`。
+- 兩個 `grep` 的輸出都要是 `1`。
+- `[[runners]]` 的數量大於 `1` 時，刪除 `config.toml` 中多餘的區段，並在 GitLab 刪除多餘的 runner manager。
+- feature flag 的數量是 `0` 時，把範本中的 `[runners.feature_flags]` 區段加到 `config.toml` 的 `[[runners]]` 中。
+
+用暫時的 Podman 網路確認 job 容器可以解析並連到 GitLab。輸出 `curl exit code: 0` 代表通過:
+
+```sh
+as_runner podman network create runner-network-check
+as_runner podman run --rm --network runner-network-check \
+  docker.io/curlimages/curl:8.12.1 \
+  --fail --silent --show-error --connect-timeout 10 --max-time 30 \
+  --output /dev/null "$CI_SERVER_URL/users/sign_in"
+echo "curl exit code: $?"
+as_runner podman network rm --force runner-network-check
+```
+
+最後推送一個使用 service 的 pipeline。`tags` 要與這個 runner 在 GitLab 設定的 tag 相同。job 成功並印出 `db` 的位址，代表 job 網路與 service 別名都正常:
+
+```yaml title=".gitlab-ci.yml"
+podman-check:
+  tags:
+    - podman
+  image: docker.io/library/node:22.22.0-bookworm
+  services:
+    - name: docker.io/library/postgres:17
+      alias: db
+  variables:
+    POSTGRES_PASSWORD: example
+  script:
+    - getent hosts db
+```
+
+## 在同一台主機部署多個 runner
+
+為每個 runner 重複部署步驟，並使用不同的值:
+
+| 項目 | 第一個 runner | 第二個 runner |
+| --- | --- | --- |
+| `RUNNER_USER` 與服務名稱 | `gitlab-runner-frontend` | `gitlab-runner-dotnet` |
+| `RUNNER_UID` | `1001` | `1002` |
+| `SUBID_START` | `165536` | `231072` |
+| runner `name` 與 `--name` | `frontend-podman` | `dotnet-podman` |
+
+在 GitLab 為每個 runner 分別建立 runner 並取得各自的 `glrt-` token。共用 token 會讓兩個帳號成為同一個 runner 的 manager，在 GitLab 刪除時兩者會一起失效。
+
+每個帳號有自己的映像檔儲存空間，所以相同的映像檔會各拉取一次。
+
+## 常見問題
+
+| 現象 | 原因 | 處理方式 |
+| --- | --- | --- |
+| 登出後 runner 停止 | 沒有啟用 linger | 執行第 4 步的 `loginctl enable-linger` |
+| `podman` 回報 subordinate ID 不足 | 帳號沒有分配範圍，或分配前已經執行過 Podman | 完成第 3 步，再執行 `as_runner podman system migrate` |
+| job 無法連到 Docker daemon | `host` 寫成主機路徑，或 socket 沒有啟動 | `host` 使用 `unix:///run/podman/podman.sock`，並檢查 `podman.socket` |
+| service 別名偶爾無法解析 | aardvark-dns 版本過舊 | 升級到高於 1.10.0 的版本 |
+| job 回報映像檔不被允許 | 名稱與 `allowed_images` 不符 | 在 job 中使用完整名稱，或調整清單 |
+| 網路檢查的 `curl` 結束碼為 `6` | DNS 伺服器對只有 IPv4 的名稱回應 AAAA 查詢失敗 | 在 `curl` 參數加上 `--ipv4` 再檢查一次 |
+
+## 移除 runner
+
+在 GitLab 暫停這個 runner，等待執行中的 job 結束。然後定義第 1 步的變數與函式，並依序執行下列步驟。
+
+先取消註冊並停止服務:
+
+```sh
+as_runner podman exec "$RUNNER_USER" gitlab-runner unregister --all-runners
+as_runner systemctl --user disable --now "$RUNNER_USER.service"
+```
+
+結束這個帳號的 user manager 與 session:
+
+```sh
+sudo loginctl disable-linger "$RUNNER_USER"
+sudo systemctl stop "user@$RUNNER_UID.service"
+sudo loginctl terminate-user "$RUNNER_USER"
+```
+
+沒有 session 時，`terminate-user` 會回報錯誤，可以忽略。確認沒有殘留的行程與掛載點，下列兩個指令都不應該有輸出:
+
+```sh
+ps -eo uid=,pid=,comm= | awk -v uid="$RUNNER_UID" -v start="$SUBID_START" -v end="$SUBID_END" '$1 == uid || ($1 >= start && $1 <= end)'
+findmnt --list --output TARGET | grep "^$RUNNER_HOME"
+```
+
+有輸出時，先處理殘留項目，再重新執行上列檢查:
+
+- 殘留行程: 執行 `sudo kill <pid>`。行程在 30 秒後仍然存在時，執行 `sudo kill -KILL <pid>`。
+- 殘留掛載點: 執行 `sudo umount <path>`。
+
+移除 subordinate ID 與帳號:
+
+```sh
+sudo usermod --del-subuids "$SUBID_START-$SUBID_END" --del-subgids "$SUBID_START-$SUBID_END" "$RUNNER_USER"
+sudo userdel --remove "$RUNNER_USER"
+```
+
+`unregister` 只移除 runner manager，請參考 [gitlab-runner unregister](https://docs.gitlab.com/runner/commands/#gitlab-runner-unregister)。最後在 GitLab 的 **Settings** > **CI/CD** > **Runners** 刪除 runner，讓 token 失效。
+
+## 下一步
+
+- 閱讀 [Docker executor](/handbook/zh-tw/ci/gitlab-runner/executors/docker/)，了解 job 容器的組成與 services 網路。
+- 閱讀 [安全強化](/handbook/zh-tw/ci/gitlab-runner/guides/security/)，決定哪些專案可以使用這個 runner。
+- GitLab 使用私有 CA 時，請參考 [Self-signed certificates](https://docs.gitlab.com/runner/configuration/tls-self-signed/)。
